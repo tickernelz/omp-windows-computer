@@ -81,6 +81,68 @@ export class ComputerWindow {
     });
   }
 
+  async setFrame(x: number, y: number, width: number, height: number): Promise<void> {
+    this.#assertNotReadOnly("setFrame");
+    await this.#worker.call("set_window_frame", {
+      pid: this.pid,
+      window_id: this.windowId,
+      x,
+      y,
+      width,
+      height
+    });
+  }
+
+  async zoom(x1: number, y1: number, x2: number, y2: number): Promise<ComputerScreenshotResult> {
+    const res = await this.#worker.call<any>("zoom", {
+      pid: this.pid,
+      window_id: this.windowId,
+      x1,
+      y1,
+      x2,
+      y2
+    });
+
+    const b64 = res.screenshot_png_b64;
+    if (!b64) {
+      throw new Error("ZoomFailed: cua-driver returned empty zoom image");
+    }
+
+    const buf = Buffer.from(b64, "base64");
+    const ts = Date.now();
+    const filename = "zoom-" + this.app + "-" + ts + ".png";
+    const hostWin = this.#worker.hostInfo;
+    const hostPath = path.join(hostWin.tempDirHost, "shots", this.#worker.sessionId, filename);
+
+    fs.mkdirSync(path.dirname(hostPath), { recursive: true });
+    fs.writeFileSync(hostPath, buf);
+
+    return {
+      path: hostPath,
+      width: res.screenshot_width || (x2 - x1),
+      height: res.screenshot_height || (y2 - y1),
+      bytes: buf.length
+    };
+  }
+
+  async invokeMenu(menuPath: string[]): Promise<void> {
+    this.#assertNotReadOnly("invokeMenu");
+    await this.#worker.call("invoke_menu", {
+      pid: this.pid,
+      window_id: this.windowId,
+      path: menuPath
+    });
+  }
+
+  async verify(expect: any[], options: { timeoutMs?: number } = {}): Promise<any> {
+    return await this.#worker.call("verify_state", {
+      pid: this.pid,
+      window_id: this.windowId,
+      expect,
+      timeout_ms: options.timeoutMs || 5000
+    });
+  }
+
   async screenshot(options: { silent?: boolean; format?: "png" | "jpeg"; maxWidth?: number; maxHeight?: number } = {}): Promise<ComputerScreenshotResult> {
     const res = await this.#worker.call<any>("get_window_state", {
       pid: this.pid,
@@ -173,16 +235,25 @@ export class ComputerWindow {
   async press(chord: string | string[], options: { delivery?: "background" | "foreground" } = {}): Promise<void> {
     this.#assertNotReadOnly("press");
     const keys = Array.isArray(chord) ? chord : chord.split(/[\s+-]+/).map((k) => k.trim()).filter(Boolean);
-    if (keys.length === 1) {
-      await this.#worker.call("press_key", {
-        pid: this.pid,
-        key: keys[0]
-      });
-    } else {
-      await this.#worker.call("hotkey", {
-        pid: this.pid,
-        keys
-      });
+    try {
+      if (keys.length === 1) {
+        await this.#worker.call("press_key", {
+          pid: this.pid,
+          key: keys[0]
+        });
+      } else {
+        await this.#worker.call("hotkey", {
+          pid: this.pid,
+          keys
+        });
+      }
+    } catch {
+      await this.raise();
+      if (keys.length === 1) {
+        await this.#worker.call("press_key", { key: keys[0], scope: "desktop" });
+      } else {
+        await this.#worker.call("hotkey", { keys, scope: "desktop" });
+      }
     }
   }
 

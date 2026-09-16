@@ -1,3 +1,16 @@
+## 0.3.0
+
+### Features (Full Cua-Driver Capability Alignment)
+- Add desktop.apps() to list all Windows apps (desktop and UWP) with live running/active flags.
+- Add desktop.kill(pid) to force-terminate unresponsive processes.
+- Add desktop.driverCall(toolName, params) for raw full-surface passthrough to all 50+ native cua-driver tools.
+- Add win.setFrame(x, y, w, h) for verified window repositioning and resizing.
+- Add win.zoom(x1, y1, x2, y2) for native-resolution regional inspection of micro-text and icons.
+- Add win.invokeMenu(path) for native application menu tree invocation via UIA.
+- Add win.verify(expect) for deterministic multi-predicate UI condition evaluation.
+- Add action: "raw" to win_computer tool schema for unrestricted LLM tool access.
+- Add /win-computer apps and /win-computer kill commands to TUI slash interface.
+
 ## 0.2.0
 
 ### Architecture Migration (Cua-Driver Engine)

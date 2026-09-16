@@ -27,6 +27,12 @@ export const WinComputerToolSchema = Type.Union([
     timeout: Type.Optional(Type.Number({ description: "Run budget in seconds" }))
   }),
   Type.Object({
+    action: Type.Literal("raw"),
+    tool: Type.String({ description: "Direct cua-driver native tool name (e.g. list_apps, kill_app, get_screen_size, set_config)" }),
+    params: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "Parameters passed to cua-driver native tool" })),
+    timeout: Type.Optional(Type.Number({ description: "Run budget in seconds" }))
+  }),
+  Type.Object({
     action: Type.Literal("capabilities")
   }),
   Type.Object({
@@ -43,6 +49,7 @@ const READ_METHODS = new Set([
   "window",
   "focusedWindow",
   "screenshot",
+  "apps",
   "elementAt",
   "focusedElement",
   "ref",
@@ -69,14 +76,28 @@ export function winComputerApproval(params: WinComputerParams): "read" | "exec" 
     const allRead = params.chain.every((step) => READ_METHODS.has(step.method));
     return allRead ? "read" : "exec";
   }
+  if (params.action === "raw") {
+    const rawTool = (params as any).tool;
+    if (rawTool === "list_windows" || rawTool === "list_apps" || rawTool === "get_screen_size" || rawTool === "check_permissions" || rawTool === "get_desktop_state") {
+      return "read";
+    }
+    return "exec";
+  }
   return "exec";
 }
 
 export function createWinComputerTool(worker: WindowsWorker): ToolDefinition<typeof WinComputerToolSchema> {
   return {
     name: "win_computer",
-    label: "Windows",
-    description: "Control the host Windows desktop from WSL2: windows, screenshots, native input, UI Automation (AX) trees, clipboard.\\n\\nRules:\\n- PREFER AX over pixels: win.ax() -> el.press() / el.click() / el.setValue().\\n- Pointer x,y are pixels in the most recent screenshot of the same target. AX coordinates are global desktop coordinates.\\n- Each window .ax() starts a ref generation. Current and previous snapshot refs remain valid; older refs throw StaleRef. Re-snapshot; NEVER guess.\\n- Input delivery defaults to foreground on this backend.\\n- Screenshots save full resolution to disk; use { silent: true } in loops.\\n- Action 'call' executes at most one handle hop (e.g. desktop.window -> win.click). Use action 'run' for longer multi-step scripts.",
+    label: "Windows (Cua-Driver Engine)",
+    description: "Control the host Windows desktop from WSL2 powered by trycua/cua native driver:\\n" +
+      "- Multi-Monitor Geometry: desktop.displays(), desktop.screenshot({ display: 'primary' })\\n" +
+      "- Window Lifecycle: desktop.windows(), desktop.launch('chrome.exe'), win.raise(), win.setFrame(x, y, w, h)\\n" +
+      "- App Management: desktop.apps() (lists running and installed apps), desktop.kill(pid)\\n" +
+      "- Full UI Automation & Menu: win.ax(), win.find({ role: 'button' }), win.invokeMenu(['File', 'Save']), el.click()\\n" +
+      "- High-Fidelity Input: win.type('text') (auto-routes UIA ValuePattern on Windows 11 XAML apps without character drops), win.press(['ctrl', 'l'])\\n" +
+      "- Direct Cua Tool Passthrough: { action: 'raw', tool: 'list_apps', params: {} }\\n" +
+      "- Multi-step scripting: { action: 'run', code: '...' } with { desktop, wait, assert } in scope.",
     parameters: WinComputerToolSchema,
     strict: true,
     approval: (params: unknown) => winComputerApproval(params as WinComputerParams),
@@ -93,8 +114,20 @@ export function createWinComputerTool(worker: WindowsWorker): ToolDefinition<typ
       if (params.action === "close") {
         worker.dispose();
         return {
-          content: [{ type: "text", text: "Closed Windows desktop worker session" }],
+          content: [{ type: "text", text: "Closed Windows desktop session" }],
           details: { closed: true }
+        };
+      }
+
+      if (params.action === "raw") {
+        const toolName = (params as any).tool;
+        const toolParams = (params as any).params || {};
+        const res = await worker.call(toolName, toolParams, {
+          timeoutMs: params.timeout ? params.timeout * 1000 : undefined
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(res, null, 2) }],
+          details: res
         };
       }
 

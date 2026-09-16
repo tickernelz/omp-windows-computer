@@ -3,7 +3,7 @@ import type { AutocompleteItem } from "@oh-my-pi/pi-tui";
 import { SCHEMA, loadConfig, saveSetting, resetSettings, validateSetting, type WinComputerConfig } from "./config.ts";
 import { WindowsWorker } from "./worker-client.ts";
 import { ComputerDesktop } from "./desktop.ts";
-import { ensureDriverInstalled, checkDriverUpdate, applyDriverUpdate } from "./driver-manager.ts";
+import { ensureDriverInstalled } from "./driver-manager.ts";
 
 export function formatSettingsOverview(config: WinComputerConfig): string {
   const lines = [
@@ -24,6 +24,8 @@ export function formatSettingsOverview(config: WinComputerConfig): string {
   lines.push("  /win-computer <key> <value>    Update a setting directly");
   lines.push("  /win-computer update           Check for and apply cua-driver update");
   lines.push("  /win-computer install          Download & install cua-driver if missing");
+  lines.push("  /win-computer apps             List installed and running Windows apps");
+  lines.push("  /win-computer kill <pid>       Force-terminate a process by PID");
   lines.push("  /win-computer doctor           Run end-to-end host & driver diagnostics");
   lines.push("  /win-computer status           Show current connection & driver status");
   lines.push("  /win-computer windows          List active Windows host top-level windows");
@@ -40,6 +42,8 @@ export function getWinComputerCompletions(prefix: string): AutocompleteItem[] {
     { value: "doctor", label: "doctor", description: "Run driver diagnostics and permissions check" },
     { value: "update", label: "update", description: "Check for and apply cua-driver updates" },
     { value: "install", label: "install", description: "Download and install cua-driver on Windows host" },
+    { value: "apps", label: "apps", description: "List installed and running Windows applications" },
+    { value: "kill", label: "kill", description: "Force-terminate a process by PID" },
     { value: "status", label: "status", description: "Display bridge status and driver details" },
     { value: "windows", label: "windows", description: "List open Windows host windows" },
     { value: "reset", label: "reset", description: "Reset all bridge configuration settings to default" }
@@ -138,6 +142,40 @@ export function createWinComputerCommand(worker: WindowsWorker): RegisteredComma
 
       if (sub === "doctor") {
         await runDoctor(ctx, worker);
+        return;
+      }
+
+      if (sub === "apps") {
+        try {
+          const desktop = new ComputerDesktop(worker);
+          const apps = await desktop.apps();
+          const running = apps.filter((a) => a.running);
+          const installed = apps.filter((a) => !a.running);
+          const msg = [
+            "Windows Applications (" + apps.length + " total):",
+            "• Running (" + running.length + "): " + running.map((a) => a.name + (a.pid ? " (pid=" + a.pid + ")" : "")).slice(0, 15).join(", "),
+            "• Installed (" + installed.length + "): " + installed.map((a) => a.name).slice(0, 15).join(", ")
+          ].join("\n");
+          ctx.ui?.notify?.(msg, "info");
+        } catch (err: any) {
+          ctx.ui?.notify?.("Failed to list apps: " + err.message, "error");
+        }
+        return;
+      }
+
+      if (sub === "kill") {
+        const targetPid = parseInt(rest[0] || "", 10);
+        if (!targetPid || isNaN(targetPid)) {
+          ctx.ui?.notify?.("Usage: /win-computer kill <pid>", "error");
+          return;
+        }
+        try {
+          const desktop = new ComputerDesktop(worker);
+          await desktop.kill(targetPid);
+          ctx.ui?.notify?.("✔ Process PID " + targetPid + " terminated.", "info");
+        } catch (err: any) {
+          ctx.ui?.notify?.("Failed to kill process: " + err.message, "error");
+        }
         return;
       }
 

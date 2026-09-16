@@ -36,6 +36,16 @@ export interface ComputerScreenshotResult {
   bytes?: number;
 }
 
+export interface WindowsAppInfo {
+  name: string;
+  kind: "desktop" | "uwp";
+  running: boolean;
+  active: boolean;
+  pid: number;
+  launch_path: string | null;
+  last_used?: string | null;
+}
+
 export class ComputerDesktop {
   #worker: WindowsWorker;
   #readOnly: boolean;
@@ -67,7 +77,7 @@ export class ComputerDesktop {
   async capabilities(): Promise<ComputerCapabilities> {
     const screen = await this.#worker.call<any>("get_screen_size", {});
     return {
-      backend: "win32 (cua-driver)",
+      backend: "win32 (cua-driver full)",
       displayServer: "windows",
       capture: true,
       input: true,
@@ -132,6 +142,20 @@ export class ComputerDesktop {
       filtered = filtered.filter((w) => w.title.toLowerCase().includes(titleL));
     }
     return filtered;
+  }
+
+  async apps(): Promise<WindowsAppInfo[]> {
+    const res = await this.#worker.call<{ apps: WindowsAppInfo[] }>("list_apps", {}, { idempotent: true });
+    return res.apps || [];
+  }
+
+  async kill(pid: number): Promise<void> {
+    this.#assertNotReadOnly("kill");
+    await this.#worker.call("kill_app", { pid });
+  }
+
+  async driverCall<T = any>(toolName: string, params: Record<string, unknown> = {}): Promise<T> {
+    return await this.#worker.call<T>(toolName, params);
   }
 
   async window(selector: string | ComputerWindowFilter): Promise<ComputerWindow> {
