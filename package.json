@@ -1,0 +1,176 @@
+{
+  "name": "@tickernelz/omp-windows-computer",
+  "version": "0.1.0",
+  "description": "Windows host desktop automation for OMP, from WSL2 or native Windows",
+  "keywords": [
+    "omp-package",
+    "omp",
+    "oh-my-pi",
+    "windows",
+    "computer-use",
+    "wsl2",
+    "extension"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "author": "Zhafron",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tickernelz/omp-windows-computer.git"
+  },
+  "homepage": "https://github.com/tickernelz/omp-windows-computer#readme",
+  "bugs": {
+    "url": "https://github.com/tickernelz/omp-windows-computer/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "files": [
+    "index.ts",
+    "lib/",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": "./index.ts"
+  },
+  "omp": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "settings": {
+      "shell": {
+        "type": "enum",
+        "values": [
+          "auto",
+          "ps5",
+          "pwsh7"
+        ],
+        "default": "auto",
+        "description": "PowerShell host for the Windows worker"
+      },
+      "shellPath": {
+        "type": "string",
+        "default": "",
+        "description": "Explicit PowerShell executable path; empty uses discovery"
+      },
+      "maxWidth": {
+        "type": "number",
+        "default": 3840,
+        "min": 640,
+        "max": 7680,
+        "description": "Screenshot downscale ceiling in pixels"
+      },
+      "maxHeight": {
+        "type": "number",
+        "default": 2400,
+        "min": 480,
+        "max": 4320,
+        "description": "Screenshot downscale ceiling in pixels"
+      },
+      "imageFormat": {
+        "type": "enum",
+        "values": [
+          "png",
+          "jpeg"
+        ],
+        "default": "png",
+        "description": "Screenshot encoding returned to the model"
+      },
+      "jpegQuality": {
+        "type": "number",
+        "default": 82,
+        "min": 40,
+        "max": 100,
+        "description": "JPEG quality when imageFormat is jpeg"
+      },
+      "includeCloaked": {
+        "type": "boolean",
+        "default": false,
+        "description": "List DWM-cloaked windows, which are usually invisible shells"
+      },
+      "includeMinimized": {
+        "type": "boolean",
+        "default": true,
+        "description": "List minimized windows"
+      },
+      "raiseBeforeInput": {
+        "type": "boolean",
+        "default": true,
+        "description": "Raise the target window before injecting input"
+      },
+      "axMaxDepth": {
+        "type": "number",
+        "default": 12,
+        "min": 1,
+        "max": 64,
+        "description": "Default accessibility tree depth"
+      },
+      "axMaxNodes": {
+        "type": "number",
+        "default": 800,
+        "min": 50,
+        "max": 20000,
+        "description": "Node ceiling before the tree is truncated"
+      },
+      "axWalker": {
+        "type": "enum",
+        "values": [
+          "control",
+          "raw"
+        ],
+        "default": "control",
+        "description": "Default UI Automation tree walker"
+      },
+      "callTimeoutMs": {
+        "type": "number",
+        "default": 30000,
+        "min": 1000,
+        "max": 300000,
+        "description": "Per-call worker deadline"
+      },
+      "captureTimeoutMs": {
+        "type": "number",
+        "default": 60000,
+        "min": 1000,
+        "max": 300000,
+        "description": "Deadline for screenshots and accessibility snapshots"
+      },
+      "screenshotDir": {
+        "type": "string",
+        "default": "",
+        "description": "Windows directory for screenshots; empty uses the Windows temp directory"
+      },
+      "keepScreenshots": {
+        "type": "number",
+        "default": 50,
+        "min": 0,
+        "max": 1000,
+        "description": "Screenshots retained per session before pruning; 0 disables pruning"
+      }
+    }
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test --test-concurrency=4 --test-reporter=dot tests/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@oh-my-pi/pi-agent-core": ">=17.4.2",
+    "@oh-my-pi/pi-ai": ">=17.4.2",
+    "@oh-my-pi/pi-coding-agent": ">=17.4.2",
+    "@oh-my-pi/pi-tui": "*",
+    "@sinclair/typebox": "*"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "typescript": "latest"
+  }
+}
