@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { WindowsWorker } from "./worker-client.ts";
 import { ComputerElement, type ComputerElementSnapshot } from "./element.ts";
 import type { ComputerScreenshotResult } from "./desktop.ts";
@@ -11,9 +13,10 @@ export interface ComputerBounds {
 
 export interface ComputerWindowInfo extends ComputerBounds {
   id: string;
+  windowId: number;
   app: string;
   title: string;
-  pid?: number;
+  pid: number;
   focused: boolean;
   bounds: ComputerBounds;
 }
@@ -38,9 +41,10 @@ export interface ComputerAxQuery {
 
 export class ComputerWindow {
   readonly id: string;
+  readonly windowId: number;
   readonly app: string;
   readonly title: string;
-  readonly pid?: number;
+  readonly pid: number;
   readonly bounds: ComputerBounds;
   readonly focused: boolean;
 
@@ -51,6 +55,7 @@ export class ComputerWindow {
     this.#worker = worker;
     this.#readOnly = readOnly;
     this.id = info.id;
+    this.windowId = info.windowId;
     this.app = info.app;
     this.title = info.title;
     this.pid = info.pid;
@@ -68,55 +73,52 @@ export class ComputerWindow {
     }
   }
 
-  async #ensureForeground(): Promise<void> {
-    await this.raise();
-    await new Promise((r) => setTimeout(r, 60));
-  }
-
   async raise(): Promise<void> {
     this.#assertNotReadOnly("raise");
-    const hwndNum = parseInt(this.id.replace("hwnd:", ""), 10);
-    await this.#worker.call("raiseWindow", { hwnd: hwndNum });
+    await this.#worker.call("bring_to_front", {
+      pid: this.pid,
+      window_id: this.windowId
+    });
   }
 
   async screenshot(options: { silent?: boolean; format?: "png" | "jpeg"; maxWidth?: number; maxHeight?: number } = {}): Promise<ComputerScreenshotResult> {
-    const ts = Date.now();
-    const ext = options.format === "jpeg" ? "jpg" : "png";
-    const filename = "win-" + this.app + "-" + ts + "." + ext;
-    const hostWin = this.#worker.hostInfo;
-    const winPath = hostWin.tempDirWindows + "\\shots\\" + this.#worker.sessionId + "\\" + filename;
-    const hostPath = hostWin.toHostPath(winPath);
-
-    const res = await this.#worker.call<any>("capture", {
-      target: this.id,
-      path: winPath,
-      format: options.format || "png",
-      maxWidth: options.maxWidth,
-      maxHeight: options.maxHeight
+    const res = await this.#worker.call<any>("get_window_state", {
+      pid: this.pid,
+      window_id: this.windowId
     });
+
+    const b64 = res.screenshot_png_b64;
+    if (!b64) {
+      throw new Error("ScreenshotFailed: get_window_state returned empty image");
+    }
+
+    const buf = Buffer.from(b64, "base64");
+    const ts = Date.now();
+    const filename = "win-" + this.app + "-" + ts + ".png";
+    const hostWin = this.#worker.hostInfo;
+    const hostPath = path.join(hostWin.tempDirHost, "shots", this.#worker.sessionId, filename);
+
+    fs.mkdirSync(path.dirname(hostPath), { recursive: true });
+    fs.writeFileSync(hostPath, buf);
 
     return {
       path: hostPath,
-      width: res.width,
-      height: res.height,
-      bytes: res.bytes
+      width: res.screenshot_width || this.bounds.width,
+      height: res.screenshot_height || this.bounds.height,
+      bytes: buf.length
     };
   }
 
   async click(x: number, y: number, options: { button?: "left" | "right" | "middle"; count?: number; delivery?: "background" | "foreground" } = {}): Promise<void> {
     this.#assertNotReadOnly("click");
-    if (options.delivery === "background") {
-      throw new Error("BackgroundUnavailable: the installed native addon supports foreground input only");
-    }
-    await this.#ensureForeground();
-    const globalX = this.bounds.x + x;
-    const globalY = this.bounds.y + y;
-    await this.#worker.call("input.mouse", {
-      action: "click",
-      x: globalX,
-      y: globalY,
+    await this.#worker.call("click", {
+      pid: this.pid,
+      window_id: this.windowId,
+      x,
+      y,
       button: options.button || "left",
-      count: options.count || 1
+      count: options.count || 1,
+      delivery_mode: options.delivery || "foreground"
     });
   }
 
@@ -127,76 +129,115 @@ export class ComputerWindow {
 
   async move(x: number, y: number): Promise<void> {
     this.#assertNotReadOnly("move");
-    await this.#ensureForeground();
     const globalX = this.bounds.x + x;
     const globalY = this.bounds.y + y;
-    await this.#worker.call("input.mouse", { action: "move", x: globalX, y: globalY });
+    await this.#worker.call("move_cursor", { x: globalX, y: globalY });
   }
 
   async drag(points: Array<[number, number]>, options: { delivery?: "background" | "foreground" } = {}): Promise<void> {
     this.#assertNotReadOnly("drag");
-    if (options.delivery === "background") {
-      throw new Error("BackgroundUnavailable: the installed native addon supports foreground input only");
-    }
-    await this.#ensureForeground();
-    const globalPoints = points.map(([px, py]) => [this.bounds.x + px, this.bounds.y + py]);
-    await this.#worker.call("input.mouse", { action: "drag", points: globalPoints });
+    if (points.length < 2) return;
+    const [from, to] = [points[0], points[points.length - 1]];
+    await this.#worker.call("drag", {
+      pid: this.pid,
+      from_x: from[0],
+      from_y: from[1],
+      to_x: to[0],
+      to_y: to[1]
+    });
   }
 
   async scroll(x: number, y: number, options: { dx?: number; dy?: number; delivery?: "background" | "foreground" } = {}): Promise<void> {
     this.#assertNotReadOnly("scroll");
-    if (options.delivery === "background") {
-      throw new Error("BackgroundUnavailable: the installed native addon supports foreground input only");
-    }
-    await this.#ensureForeground();
-    const globalX = this.bounds.x + x;
-    const globalY = this.bounds.y + y;
-    await this.#worker.call("input.mouse", { action: "scroll", x: globalX, y: globalY, dx: options.dx || 0, dy: options.dy || 0 });
+    await this.#worker.call("scroll", {
+      pid: this.pid,
+      x,
+      y,
+      delta_x: options.dx || 0,
+      delta_y: options.dy || 0
+    });
   }
 
   async type(text: string, options: { delivery?: "background" | "foreground" } = {}): Promise<void> {
     this.#assertNotReadOnly("type");
-    if (options.delivery === "background") {
-      throw new Error("BackgroundUnavailable: the installed native addon supports foreground input only");
-    }
-    await this.#ensureForeground();
-    await this.#worker.call("input.type", { text });
+    await this.#worker.call("bring_to_front", { pid: this.pid, window_id: this.windowId });
+    await new Promise((r) => setTimeout(r, 60));
+    await this.#worker.call("type_text", {
+      pid: this.pid,
+      window_id: this.windowId,
+      text,
+      delivery_mode: options.delivery || "foreground"
+    });
   }
 
   async press(chord: string | string[], options: { delivery?: "background" | "foreground" } = {}): Promise<void> {
     this.#assertNotReadOnly("press");
-    if (options.delivery === "background") {
-      throw new Error("BackgroundUnavailable: the installed native addon supports foreground input only");
-    }
-    await this.#ensureForeground();
     const keys = Array.isArray(chord) ? chord : chord.split(/[\s+-]+/).map((k) => k.trim()).filter(Boolean);
-    await this.#worker.call("input.keyChord", { keys });
+    if (keys.length === 1) {
+      await this.#worker.call("press_key", {
+        pid: this.pid,
+        key: keys[0]
+      });
+    } else {
+      await this.#worker.call("hotkey", {
+        pid: this.pid,
+        keys
+      });
+    }
   }
 
   async ax(options: ComputerAxOptions = {}): Promise<string> {
-    const hwndNum = parseInt(this.id.replace("hwnd:", ""), 10);
-    const res = await this.#worker.call<{ tree: string }>("ax.snapshot", {
-      hwnd: hwndNum,
-      maxDepth: options.maxDepth || 12,
-      maxNodes: options.maxNodes || 800,
-      all: options.all ?? false
+    const res = await this.#worker.call<any>("get_window_state", {
+      pid: this.pid,
+      window_id: this.windowId
     }, { idempotent: true });
-    return res.tree;
+    return res.markdown_tree || (res.window_title ? "- window \"" + res.window_title + "\" [ref=e0]" : "");
   }
 
   async find(query: ComputerAxQuery): Promise<ComputerElement[]> {
-    const hwndNum = parseInt(this.id.replace("hwnd:", ""), 10);
-    const rawList = await this.#worker.call<ComputerElementSnapshot[]>("ax.query", {
-      hwnd: hwndNum,
-      role: query.role,
-      title: query.title,
-      limit: query.limit || 10
+    const res = await this.#worker.call<any>("get_window_state", {
+      pid: this.pid,
+      window_id: this.windowId
     }, { idempotent: true });
-    return rawList.map((item) => new ComputerElement(this.#worker, item, this.#readOnly));
+
+    const elements: any[] = res.elements || [];
+    let matched = elements;
+
+    if (query.role) {
+      const rL = query.role.toLowerCase();
+      matched = matched.filter((e) => (e.role || "").toLowerCase().includes(rL));
+    }
+    if (query.title) {
+      const tL = query.title.toLowerCase();
+      matched = matched.filter((e) => (e.label || "").toLowerCase().includes(tL));
+    }
+
+    const limit = query.limit || 10;
+    return matched.slice(0, limit).map((e) => new ComputerElement(this.#worker, {
+      ...e,
+      pid: this.pid,
+      windowId: this.windowId
+    }, this.#readOnly));
   }
 
   async ref(tag: string): Promise<ComputerElement> {
-    const raw = await this.#worker.call<ComputerElementSnapshot>("ref.info", { ref: tag }, { idempotent: true });
-    return new ComputerElement(this.#worker, raw, this.#readOnly);
+    const res = await this.#worker.call<any>("get_window_state", {
+      pid: this.pid,
+      window_id: this.windowId
+    }, { idempotent: true });
+
+    const idx = parseInt(tag.replace(/^e/i, ""), 10);
+    const elements: any[] = res.elements || [];
+    const el = elements.find((e) => e.element_index === idx);
+
+    if (!el) {
+      throw new Error("StaleRef: element '" + tag + "' has expired; re-take win.ax() snapshot");
+    }
+
+    return new ComputerElement(this.#worker, {
+      ...el,
+      pid: this.pid,
+      windowId: this.windowId
+    }, this.#readOnly);
   }
 }

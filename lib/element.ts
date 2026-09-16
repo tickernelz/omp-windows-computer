@@ -2,16 +2,22 @@ import { WindowsWorker } from "./worker-client.ts";
 import { normalizeUiaRole } from "./roles.ts";
 
 export interface ComputerElementSnapshot {
-  ref: string;
+  element_index?: number;
+  element_token?: string;
+  ref?: string;
   role: string;
-  nativeRole: string;
+  nativeRole?: string;
+  label?: string;
   title?: string;
   description?: string;
-  enabled: boolean;
-  focused: boolean;
-  childCount?: number;
+  enabled?: boolean;
+  focused?: boolean;
+  frame?: { x: number; y: number; w: number; h: number };
   bounds?: { x: number; y: number; width: number; height: number };
   actions?: string[];
+  value?: string;
+  windowId?: number;
+  pid?: number;
 }
 
 export class ComputerElement {
@@ -22,26 +28,48 @@ export class ComputerElement {
   readonly description?: string;
   readonly enabled: boolean;
   readonly focused: boolean;
-  readonly childCount: number;
+  readonly childCount: number = 0;
+  readonly elementIndex?: number;
+  readonly elementToken?: string;
+  readonly windowId?: number;
+  readonly pid?: number;
 
   #worker: WindowsWorker;
   #readOnly: boolean;
-  #cachedBounds: { x: number; y: number; width: number; height: number } | null = null;
-  #cachedActions: string[] = [];
+  #bounds: { x: number; y: number; width: number; height: number } | null = null;
+  #actions: string[] = [];
+  #val?: string;
 
   constructor(worker: WindowsWorker, snapshot: ComputerElementSnapshot, readOnly: boolean = false) {
     this.#worker = worker;
     this.#readOnly = readOnly;
-    this.ref = snapshot.ref;
+    this.ref = snapshot.ref || ("e" + (snapshot.element_index ?? 0));
+    this.elementIndex = snapshot.element_index;
+    this.elementToken = snapshot.element_token;
+    this.windowId = snapshot.windowId;
+    this.pid = snapshot.pid;
     this.nativeRole = snapshot.nativeRole || snapshot.role;
     this.role = normalizeUiaRole(snapshot.role);
-    this.title = snapshot.title;
+    this.title = snapshot.title || snapshot.label;
     this.description = snapshot.description;
     this.enabled = snapshot.enabled ?? true;
     this.focused = snapshot.focused ?? false;
-    this.childCount = snapshot.childCount ?? 0;
-    if (snapshot.bounds) this.#cachedBounds = snapshot.bounds;
-    if (snapshot.actions) this.#cachedActions = snapshot.actions;
+    this.#val = snapshot.value;
+
+    if (snapshot.frame) {
+      this.#bounds = {
+        x: snapshot.frame.x,
+        y: snapshot.frame.y,
+        width: snapshot.frame.w,
+        height: snapshot.frame.h
+      };
+    } else if (snapshot.bounds) {
+      this.#bounds = snapshot.bounds;
+    }
+
+    if (snapshot.actions) {
+      this.#actions = snapshot.actions;
+    }
   }
 
   toString(): string {
@@ -55,83 +83,100 @@ export class ComputerElement {
   }
 
   async value(): Promise<string | undefined> {
-    const res = await this.#worker.call<{ value: string | null }>("ref.value", { ref: this.ref }, { idempotent: true });
-    return res.value ?? undefined;
+    return this.#val;
   }
 
   async setValue(value: string): Promise<void> {
     this.#assertNotReadOnly("setValue");
-    await this.#worker.call("ref.setValue", { ref: this.ref, value });
+    if (this.pid && this.windowId && this.elementIndex !== undefined) {
+      await this.#worker.call("set_value", {
+        pid: this.pid,
+        window_id: this.windowId,
+        element_index: this.elementIndex,
+        value
+      });
+      this.#val = value;
+    } else {
+      throw new Error("SetValueFailed: element lacks PID/windowId context for set_value");
+    }
   }
 
   async bounds(): Promise<{ x: number; y: number; width: number; height: number } | null> {
-    if (this.#cachedBounds) return this.#cachedBounds;
-    const info = await this.#worker.call<any>("ref.info", { ref: this.ref }, { idempotent: true });
-    this.#cachedBounds = info.bounds || null;
-    return this.#cachedBounds;
+    return this.#bounds;
   }
 
   async attributes(): Promise<Record<string, string>> {
-    const info = await this.#worker.call<any>("ref.info", { ref: this.ref }, { idempotent: true });
     return {
       role: this.role,
       nativeRole: this.nativeRole,
       title: this.title || "",
       enabled: String(this.enabled),
       focused: String(this.focused),
-      bounds: info.bounds ? info.bounds.x + "," + info.bounds.y + "," + info.bounds.width + "," + info.bounds.height : ""
+      bounds: this.#bounds ? this.#bounds.x + "," + this.#bounds.y + "," + this.#bounds.width + "," + this.#bounds.height : ""
     };
   }
 
   async actions(): Promise<string[]> {
-    if (this.#cachedActions.length > 0) return this.#cachedActions;
-    const info = await this.#worker.call<any>("ref.info", { ref: this.ref }, { idempotent: true });
-    this.#cachedActions = info.actions || [];
-    return this.#cachedActions;
+    return this.#actions;
   }
 
   async perform(action: string): Promise<void> {
-    this.#assertNotReadOnly("perform");
-    await this.#worker.call("ref.perform", { ref: this.ref, action });
+    await this.click();
   }
 
   async press(): Promise<void> {
-    this.#assertNotReadOnly("press");
-    await this.perform("Invoke");
+    await this.click();
   }
 
   async click(options: { delivery?: "background" | "foreground"; button?: "left" | "right" | "middle" } = {}): Promise<void> {
     this.#assertNotReadOnly("click");
-    if (options.delivery === "background") {
-      throw new Error("BackgroundUnavailable: the installed native addon supports foreground input only");
-    }
-    const b = await this.bounds();
-    if (!b || b.width <= 0 || b.height <= 0) {
-      await this.press();
+    if (this.pid && this.windowId && this.elementIndex !== undefined) {
+      await this.#worker.call("click", {
+        pid: this.pid,
+        window_id: this.windowId,
+        element_index: this.elementIndex,
+        button: options.button || "left",
+        delivery_mode: options.delivery || "foreground"
+      });
       return;
     }
-    const cx = Math.round(b.x + b.width / 2);
-    const cy = Math.round(b.y + b.height / 2);
-    await this.#worker.call("input.mouse", {
-      action: "click",
-      x: cx,
-      y: cy,
-      button: options.button || "left",
-      count: 1
-    });
+
+    if (this.#bounds && this.#bounds.width > 0) {
+      const cx = Math.round(this.#bounds.x + this.#bounds.width / 2);
+      const cy = Math.round(this.#bounds.y + this.#bounds.height / 2);
+      await this.#worker.call("click", {
+        scope: "desktop",
+        x: cx,
+        y: cy,
+        button: options.button || "left",
+        delivery_mode: options.delivery || "foreground"
+      });
+      return;
+    }
+
+    throw new Error("ElementClickFailed: element has no index or valid bounds to click");
   }
 
   async type(text: string): Promise<void> {
     this.#assertNotReadOnly("type");
-    try {
-      await this.focus();
-    } catch {}
-    await this.#worker.call("input.type", { text });
+    if (this.pid && this.windowId && this.elementIndex !== undefined) {
+      await this.#worker.call("type_text", {
+        pid: this.pid,
+        window_id: this.windowId,
+        element_index: this.elementIndex,
+        text,
+        delivery_mode: "foreground"
+      });
+    } else {
+      await this.#worker.call("type_text", { scope: "desktop", text, delivery_mode: "foreground" });
+    }
   }
 
   async focus(): Promise<void> {
     this.#assertNotReadOnly("focus");
-    await this.#worker.call("ref.focus", { ref: this.ref });
+    if (this.pid && this.windowId) {
+      await this.#worker.call("bring_to_front", { pid: this.pid, window_id: this.windowId });
+    }
   }
 
   async parent(): Promise<ComputerElement | null> {

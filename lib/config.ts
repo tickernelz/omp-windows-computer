@@ -37,41 +37,21 @@ export interface EnumSetting extends WinSettingBase {
 export type WinSetting = StringSetting | NumberSetting | BooleanSetting | EnumSetting;
 
 export const SCHEMA: Record<string, WinSetting> = {
-  shell: { type: "enum", values: ["auto", "ps5", "pwsh7"], default: "auto", description: "PowerShell host for the Windows worker" },
-  shellPath: { type: "string", default: "", description: "Explicit PowerShell executable path; empty uses discovery" },
-  maxWidth: { type: "number", default: 3840, min: 640, max: 7680, description: "Screenshot downscale ceiling in pixels" },
-  maxHeight: { type: "number", default: 2400, min: 480, max: 4320, description: "Screenshot downscale ceiling in pixels" },
+  driverPath: { type: "string", default: "", description: "Explicit path to cua-driver.exe; empty uses auto-discovery/auto-download" },
+  autoUpdate: { type: "boolean", default: true, description: "Automatically check and update cua-driver on launch" },
+  maxWidth: { type: "number", default: 3840, min: 640, max: 7680, description: "Screenshot downscale width ceiling in pixels" },
+  maxHeight: { type: "number", default: 2400, min: 480, max: 4320, description: "Screenshot downscale height ceiling in pixels" },
   imageFormat: { type: "enum", values: ["png", "jpeg"], default: "png", description: "Screenshot encoding returned to the model" },
-  jpegQuality: { type: "number", default: 82, min: 40, max: 100, description: "JPEG quality when imageFormat is jpeg" },
-  includeCloaked: { type: "boolean", default: false, description: "List DWM-cloaked windows, which are usually invisible shells" },
-  includeMinimized: { type: "boolean", default: true, description: "List minimized windows" },
-  raiseBeforeInput: { type: "boolean", default: true, description: "Raise the target window before injecting input" },
-  axMaxDepth: { type: "number", default: 12, min: 1, max: 64, description: "Default accessibility tree depth" },
-  axMaxNodes: { type: "number", default: 800, min: 50, max: 20000, description: "Node ceiling before the tree is truncated" },
-  axWalker: { type: "enum", values: ["control", "raw"], default: "control", description: "Default UI Automation tree walker" },
-  callTimeoutMs: { type: "number", default: 30000, min: 1000, max: 300000, description: "Per-call worker deadline" },
-  captureTimeoutMs: { type: "number", default: 60000, min: 1000, max: 300000, description: "Deadline for screenshots and accessibility snapshots" },
-  screenshotDir: { type: "string", default: "", description: "Windows directory for screenshots; empty uses the Windows temp directory" },
-  keepScreenshots: { type: "number", default: 50, min: 0, max: 1000, description: "Screenshots retained per session before pruning; 0 disables pruning" }
+  callTimeoutMs: { type: "number", default: 45000, min: 1000, max: 300000, description: "RPC call deadline in milliseconds" }
 };
 
 export interface WinComputerConfig {
-  shell: "auto" | "ps5" | "pwsh7";
-  shellPath: string;
+  driverPath: string;
+  autoUpdate: boolean;
   maxWidth: number;
   maxHeight: number;
   imageFormat: "png" | "jpeg";
-  jpegQuality: number;
-  includeCloaked: boolean;
-  includeMinimized: boolean;
-  raiseBeforeInput: boolean;
-  axMaxDepth: number;
-  axMaxNodes: number;
-  axWalker: "control" | "raw";
   callTimeoutMs: number;
-  captureTimeoutMs: number;
-  screenshotDir: string;
-  keepScreenshots: number;
 }
 
 export function getDefaultConfig(): WinComputerConfig {
@@ -93,7 +73,7 @@ export function getProjectOverridesPath(cwd: string): string {
 export function validateSetting(key: string, rawValue: unknown): { ok: true; value: unknown } | { ok: false; error: string } {
   const schema = SCHEMA[key];
   if (!schema) {
-    return { ok: false, error: `Unknown configuration key "${key}". Run /win-computer to list keys.` };
+    return { ok: false, error: "Unknown configuration key \"" + key + "\". Run /win-computer to list keys." };
   }
 
   if (schema.type === "boolean") {
@@ -101,19 +81,19 @@ export function validateSetting(key: string, rawValue: unknown): { ok: true; val
     const str = String(rawValue).trim().toLowerCase();
     if (str === "true" || str === "on" || str === "1" || str === "yes") return { ok: true, value: true };
     if (str === "false" || str === "off" || str === "0" || str === "no") return { ok: true, value: false };
-    return { ok: false, error: `Invalid ${key} "${rawValue}". Use on or off.` };
+    return { ok: false, error: "Invalid " + key + " \"" + rawValue + "\". Use on or off." };
   }
 
   if (schema.type === "number") {
     const num = typeof rawValue === "number" ? rawValue : Number(rawValue);
     if (isNaN(num)) {
-      return { ok: false, error: `Invalid ${key} "${rawValue}". Expected a number.` };
+      return { ok: false, error: "Invalid " + key + " \"" + rawValue + "\". Expected a number." };
     }
     if (schema.min !== undefined && num < schema.min) {
-      return { ok: false, error: `Invalid ${key} "${rawValue}". Allowed: ${schema.min} - ${schema.max ?? "infinity"}` };
+      return { ok: false, error: "Invalid " + key + " \"" + rawValue + "\". Allowed: " + schema.min + " - " + (schema.max ?? "infinity") };
     }
     if (schema.max !== undefined && num > schema.max) {
-      return { ok: false, error: `Invalid ${key} "${rawValue}". Allowed: ${schema.min ?? "-infinity"} - ${schema.max}` };
+      return { ok: false, error: "Invalid " + key + " \"" + rawValue + "\". Allowed: " + (schema.min ?? "-infinity") + " - " + schema.max };
     }
     return { ok: true, value: num };
   }
@@ -123,14 +103,14 @@ export function validateSetting(key: string, rawValue: unknown): { ok: true; val
     if (schema.values.includes(str)) {
       return { ok: true, value: str };
     }
-    return { ok: false, error: `Invalid ${key} "${rawValue}". Options: ${schema.values.join(", ")}` };
+    return { ok: false, error: "Invalid " + key + " \"" + rawValue + "\". Options: " + schema.values.join(", ") };
   }
 
   if (schema.type === "string") {
     return { ok: true, value: String(rawValue).trim() };
   }
 
-  return { ok: false, error: `Unsupported setting type for "${key}"` };
+  return { ok: false, error: "Unsupported setting type for \"" + key + "\"" };
 }
 
 export function loadConfig(cwd: string = process.cwd()): WinComputerConfig {
@@ -186,7 +166,7 @@ export function saveSetting(key: string, rawValue: unknown, lockfilePath: string
 
   lockData.settings[PLUGIN_NAME][key] = validated.value;
 
-  const tmpPath = `${lockfilePath}.tmp-${process.pid}-${Date.now()}`;
+  const tmpPath = lockfilePath + ".tmp-" + process.pid + "-" + Date.now();
   fs.writeFileSync(tmpPath, JSON.stringify(lockData, null, 2) + "\n", { encoding: "utf8" });
   fs.renameSync(tmpPath, lockfilePath);
 
@@ -199,7 +179,7 @@ export function resetSettings(lockfilePath: string = getPluginsLockfilePath()): 
     const lockData = JSON.parse(fs.readFileSync(lockfilePath, "utf8"));
     if (lockData.settings && lockData.settings[PLUGIN_NAME]) {
       delete lockData.settings[PLUGIN_NAME];
-      const tmpPath = `${lockfilePath}.tmp-${process.pid}-${Date.now()}`;
+      const tmpPath = lockfilePath + ".tmp-" + process.pid + "-" + Date.now();
       fs.writeFileSync(tmpPath, JSON.stringify(lockData, null, 2) + "\n", { encoding: "utf8" });
       fs.renameSync(tmpPath, lockfilePath);
     }

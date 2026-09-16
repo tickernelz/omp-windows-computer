@@ -5,15 +5,16 @@ import { getDefaultConfig } from "../lib/config.ts";
 
 test("getWinComputerCompletions: returns subcommands and keys on empty prefix", () => {
   const items = getWinComputerCompletions("");
-  assert.ok(items.length >= 10);
+  assert.ok(items.length >= 8);
   const values = items.map((i) => i.value);
   assert.ok(values.includes("doctor"));
+  assert.ok(values.includes("update"));
+  assert.ok(values.includes("install"));
   assert.ok(values.includes("status"));
   assert.ok(values.includes("windows"));
-  assert.ok(values.includes("restart"));
   assert.ok(values.includes("reset"));
   assert.ok(values.includes("maxWidth"));
-  assert.ok(values.includes("imageFormat"));
+  assert.ok(values.includes("autoUpdate"));
 });
 
 test("getWinComputerCompletions: filters by prefix", () => {
@@ -23,26 +24,25 @@ test("getWinComputerCompletions: filters by prefix", () => {
 });
 
 test("getWinComputerCompletions: completes enum values for keys", () => {
-  const items = getWinComputerCompletions("shell ");
-  assert.strictEqual(items.length, 3);
+  const items = getWinComputerCompletions("imageFormat ");
+  assert.strictEqual(items.length, 2);
   const values = items.map((i) => i.value);
-  assert.ok(values.includes("shell auto"));
-  assert.ok(values.includes("shell ps5"));
-  assert.ok(values.includes("shell pwsh7"));
+  assert.ok(values.includes("imageFormat png"));
+  assert.ok(values.includes("imageFormat jpeg"));
 });
 
 test("getWinComputerCompletions: completes boolean values for keys", () => {
-  const items = getWinComputerCompletions("includeCloaked ");
+  const items = getWinComputerCompletions("autoUpdate ");
   assert.strictEqual(items.length, 2);
   const values = items.map((i) => i.value);
-  assert.ok(values.includes("includeCloaked on"));
-  assert.ok(values.includes("includeCloaked off"));
+  assert.ok(values.includes("autoUpdate on"));
+  assert.ok(values.includes("autoUpdate off"));
 });
 
 test("formatSettingsOverview: includes all schema keys and descriptions", () => {
   const text = formatSettingsOverview(getDefaultConfig());
   assert.ok(text.includes("maxWidth"));
-  assert.ok(text.includes("shell"));
-  assert.ok(text.includes("keepScreenshots"));
+  assert.ok(text.includes("autoUpdate"));
   assert.ok(text.includes("/win-computer doctor"));
+  assert.ok(text.includes("/win-computer update"));
 });

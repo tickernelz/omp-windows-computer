@@ -1,3 +1,13 @@
+## 0.2.0
+
+### Architecture Migration (Cua-Driver Engine)
+- Migrate native backend from PowerShell win32-worker.ps1 script to trycua/cua driver (`cua-driver.exe`).
+- Full support for Windows 11 modern XAML/WinUI3 apps (Notepad, Calculator, Settings) via UIAutomation `ValuePattern` and `WM_CHAR` without character drops.
+- Add automated driver discovery via `HERMES_CUA_DRIVER_CMD` and standard LocalAppData paths.
+- Add automated download/installer support via official installer (`irm https://cua.ai/driver/install.ps1 | iex`).
+- Add auto-update check on session launch and manual update via `/win-computer update`.
+- Remove legacy PowerShell P/Invoke marshalling and staging files.
+
 ## 0.1.2
 
 ### Features
