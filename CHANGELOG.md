@@ -1,3 +1,10 @@
+## 0.3.1
+
+### Optimizations & Workflow Enhancements
+- Auto-compress and downscale screenshots to lightweight JPEG (<100KB, max 1280px) automatically in screenshot() pipeline, eliminating OMP memory-limit crashes and manual ffmpeg conversion turns.
+- Add desktop.openUrl(url, browser?) for 1-step reliable website opening in Chrome, Zen, Edge, or Windows default browser.
+- Add win.navigate(url) for instant atomic browser tab navigation via address bar selection, clipboard paste, and Return dispatch.
+
 ## 0.3.0
 
 ### Features (Full Cua-Driver Capability Alignment)

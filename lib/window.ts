@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { WindowsWorker } from "./worker-client.ts";
 import { ComputerElement, type ComputerElementSnapshot } from "./element.ts";
 import type { ComputerScreenshotResult } from "./desktop.ts";
+import { optimizeScreenshot } from "./image-optimizer.ts";
 
 export interface ComputerBounds {
   x: number;
@@ -79,6 +80,25 @@ export class ComputerWindow {
       pid: this.pid,
       window_id: this.windowId
     });
+  }
+
+  async navigate(url: string): Promise<void> {
+    this.#assertNotReadOnly("navigate");
+    await this.raise();
+    await new Promise((r) => setTimeout(r, 80));
+
+    // 1. Focus address bar with Ctrl+L
+    await this.press(["ctrl", "l"]);
+    await new Promise((r) => setTimeout(r, 120));
+
+    // 2. Write URL to host clipboard and paste instantly
+    await this.#worker.call("clipboard_write", { text: url });
+    await this.press(["ctrl", "v"]);
+    await new Promise((r) => setTimeout(r, 120));
+
+    // 3. Submit navigation
+    await this.#worker.call("press_key", { key: "return", scope: "desktop" });
+    await new Promise((r) => setTimeout(r, 400));
   }
 
   async setFrame(x: number, y: number, width: number, height: number): Promise<void> {
@@ -163,11 +183,17 @@ export class ComputerWindow {
     fs.mkdirSync(path.dirname(hostPath), { recursive: true });
     fs.writeFileSync(hostPath, buf);
 
+    // Auto-compress & downscale using image-optimizer (default max 1280px JPEG, ~40KB)
+    const optimized = optimizeScreenshot(hostPath, {
+      maxWidth: options.maxWidth || 1280,
+      format: options.format || "jpeg"
+    });
+
     return {
-      path: hostPath,
-      width: res.screenshot_width || this.bounds.width,
-      height: res.screenshot_height || this.bounds.height,
-      bytes: buf.length
+      path: optimized.path,
+      width: optimized.width,
+      height: optimized.height,
+      bytes: optimized.bytes
     };
   }
 

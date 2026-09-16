@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { WindowsWorker } from "./worker-client.ts";
 import { ComputerWindow, type ComputerWindowInfo, type ComputerWindowFilter, type ComputerBounds } from "./window.ts";
 import { ComputerElement } from "./element.ts";
+import { optimizeScreenshot } from "./image-optimizer.ts";
 
 export interface ComputerDisplay extends ComputerBounds {
   id: string;
@@ -226,6 +227,47 @@ export class ComputerDesktop {
     throw new Error("LaunchSuccessWithoutWindow: process \"" + executable + "\" launched (pid=" + pid + "), but window was not resolved within timeout");
   }
 
+  async openUrl(url: string, browser?: "chrome" | "zen" | "edge" | "default"): Promise<ComputerWindow> {
+    this.#assertNotReadOnly("openUrl");
+    const targetBrowser = browser || "default";
+
+    if (targetBrowser === "chrome") {
+      await this.#worker.call("launch_app", { path: "chrome.exe", additional_arguments: ["--new-window", url] });
+    } else if (targetBrowser === "zen") {
+      await this.#worker.call("launch_app", { name: "zen", additional_arguments: ["--new-window", url] });
+    } else if (targetBrowser === "edge") {
+      await this.#worker.call("launch_app", { path: "msedge.exe", additional_arguments: ["--new-window", url] });
+    } else {
+      await this.#worker.call("launch_app", { urls: [url] });
+    }
+
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 350));
+      const wins = await this.windows();
+      const matched = wins.find((w) => {
+        const titleL = w.title.toLowerCase();
+        return (
+          titleL.includes("chrome") ||
+          titleL.includes("zen") ||
+          titleL.includes("edge") ||
+          titleL.includes("fiverr") ||
+          titleL.includes("google")
+        );
+      });
+      if (matched) {
+        const win = new ComputerWindow(this.#worker, matched, this.#readOnly);
+        await win.raise();
+        return win;
+      }
+    }
+
+    const focused = await this.focusedWindow();
+    if (focused) return focused;
+
+    throw new Error("OpenUrlSuccessWithoutWindow: URL opened, but browser window could not be resolved");
+  }
+
   async screenshot(options: { silent?: boolean; format?: "png" | "jpeg"; maxWidth?: number; maxHeight?: number; display?: number | string | "all" } = {}): Promise<ComputerScreenshotResult> {
     const ts = Date.now();
     const filename = "desk-" + ts + "-" + Math.random().toString(36).slice(2, 7) + ".png";
@@ -239,26 +281,30 @@ export class ComputerDesktop {
       screenshot_out_file: winPath
     });
 
-    let fileSize = 0;
-    if (fs.existsSync(hostPath)) {
-      fileSize = fs.statSync(hostPath).size;
-    } else if (res.screenshot_png_b64) {
+    if (!fs.existsSync(hostPath) && res.screenshot_png_b64) {
       const buf = Buffer.from(res.screenshot_png_b64, "base64");
       fs.writeFileSync(hostPath, buf);
-      fileSize = buf.length;
-    } else {
+    }
+
+    if (!fs.existsSync(hostPath)) {
       throw new Error("ScreenshotFailed: cua-driver did not generate screenshot: " + JSON.stringify(res));
     }
 
+    // Auto-compress & downscale using image-optimizer (default max 1280px JPEG, ~50KB)
+    const optimized = optimizeScreenshot(hostPath, {
+      maxWidth: options.maxWidth || 1280,
+      format: options.format || "jpeg"
+    });
+
     if (!options.silent) {
-      this.#screenshots.push(hostPath);
+      this.#screenshots.push(optimized.path);
     }
 
     return {
-      path: hostPath,
-      width: res.screenshot_width || 1920,
-      height: res.screenshot_height || 1080,
-      bytes: fileSize
+      path: optimized.path,
+      width: optimized.width,
+      height: optimized.height,
+      bytes: optimized.bytes
     };
   }
 
