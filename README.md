@@ -1,51 +1,131 @@
 # @tickernelz/omp-windows-computer
 
-Windows host desktop automation bridge for [Oh My Pi (OMP)](https://github.com/can1357/oh-my-pi) running under WSL2 or natively on Windows.
+Enterprise-grade Windows desktop automation plugin for [Oh My Pi (OMP)](https://github.com/can1357/oh-my-pi), powered by the battle-tested [`cua-driver`](https://github.com/trycua/cua) native engine.
 
-## Overview
+Runs seamlessly whether your OMP session is running inside **Linux WSL2** (controlling the Windows host) or **natively on Windows**.
 
-When OMP runs inside Linux WSL2, the built-in `computer` eval prelude binds strictly to local Linux Wayland/X11 and AT-SPI D-Bus interfaces. This extension bridges OMP in WSL2 directly to the **Windows host desktop** via a persistent, high-performance PowerShell/Win32 JSON-RPC worker without installing heavy runtimes or daemons on Windows.
+---
 
-## Features
+## ⚡ Key Highlights: Why Use This Plugin?
 
-- **Built-in Parity**: Provides `win_computer` tool matching the exact API surface, vocabulary, and coordinate conventions of OMP's native desktop automation (`displays`, `windows`, `screenshot`, `click`, `move`, `drag`, `scroll`, `type`, `press`, `ax`, `find`, `clipboard`).
-- **UI Automation (AX-First)**: Full text-based accessibility tree walks with `[ref=eN]` tags and generational ref retention.
-- **DWM Frame Accuracy**: Resolves true window bounds using `DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS)`, stripping invisible drop-shadow borders.
-- **Sub-10ms Enumeration**: Native C# P/Invoke window enumeration and process image resolution inside the persistent worker.
-- **Interactive Slash Command**: Built-in `/win-computer` command to inspect, configure, and self-diagnose host connectivity.
-- **Universal Portability**: Dynamically resolves drvfs mounts (`/proc/mounts`), Windows temp folders, and PowerShell binaries. Supports both WSL2 and native Windows.
+### 1. 🛡️ 100% Independent from Built-in OMP `computer`
+- **Zero Collision**: The plugin registers under the tool name `win_computer`, completely separate from OMP's built-in `computer` prelude.
+- **Can Be Toggled Independently**: If you disable OMP's built-in `computer.enabled` setting (`computer.enabled: false`), **`win_computer` stays 100% active**.
+- **Recommended for WSL2 Users**: We recommend disabling OMP's built-in `computer` when working in WSL2 (`/settings` -> disable Computer). This saves LLM system prompt tokens and ensures your agent focuses exclusively on the Windows host desktop rather than getting confused by WSLg Linux windows.
 
-## Installation
+### 2. 🪟 Full Support for Native Windows OMP Users!
+This plugin is **not just for WSL2** — native Windows OMP users can use it as a powerful, supercharged upgrade over the standard OMP desktop automation:
+- **XAML / WinUI3 / Modern Windows 11 Support**: Reliably types into modern Windows 11 apps (Notepad, Calculator, Windows Terminal, Settings) via UIAutomation `ValuePattern` without dropped characters.
+- **App Catalogue Discovery (`desktop.apps()`)**: Enumerate all installed desktop `.exe` and UWP Store apps on Windows with real-time running/active flags.
+- **Micro-Inspection (`win.zoom()`)**: High-resolution zoom crops with 20% padding to inspect small UI elements, captchas, or tiny font details.
+- **Native Menu Traversal (`win.invokeMenu()`)**: Execute application menus (`["File", "Save As..."]`) directly through accessibility channels without guessing dropdown pixel coordinates.
+- **Window Positioning (`win.setFrame()`)**: Deterministically move, split, and tile windows on any monitor with geometry verification.
+- **Force Termination (`desktop.kill(pid)`)**: Cleanly kill unresponsive processes.
+- **50+ Raw Cua Tools (`desktop.driverCall()` / action: "raw")**: Unrestricted access to the entire native `cua-driver` automation surface.
+
+---
+
+## 🚀 Installation
+
+Install directly into OMP using the official package manager:
 
 ```bash
 omp plugin install @tickernelz/omp-windows-computer
 ```
 
-For local development:
+For local development from source:
 ```bash
 git clone https://github.com/tickernelz/omp-windows-computer.git
 cd omp-windows-computer
 omp plugin link .
 ```
 
-## Settings
+---
 
-Settings are stored in OMP's official plugin store (`~/.omp/plugins/omp-plugins.lock.json`) and configurable via `/win-computer` or `omp plugin config`:
+## 📦 Automatic Driver Setup (Auto-Download & Auto-Update)
+
+You don't need to manually configure binaries or background services:
+- **Auto-Download**: If `cua-driver.exe` is missing on your Windows host, the plugin automatically triggers the official installer (`irm https://cua.ai/driver/install.ps1 | iex`).
+- **Auto-Update**: Automatically checks GitHub releases on startup and keeps your driver updated.
+- **On-Demand TUI Control**:
+  - `/win-computer doctor` — End-to-end self-diagnostic (checks driver binary, permissions, display resolution, and latency).
+  - `/win-computer update` — Check and trigger driver upgrades on-demand.
+  - `/win-computer install` — Force-reinstall driver if needed.
+  - `/win-computer apps` — Quick TUI overview of installed and running Windows applications.
+  - `/win-computer windows` — List active Windows windows.
+  - `/win-computer kill <pid>` — Terminate a hanging process.
+
+---
+
+## 💻 Usage Examples for AI Agents
+
+### 1. Launching & Typing (Windows 11 XAML & Win32)
+```ts
+// 1-liner to launch any app
+const win = await desktop.launch("notepad.exe");
+
+// Automatically brings window to foreground and types without character drops
+await win.type("Hello from OMP Agent!");
+
+// Save or close via native shortcuts
+await win.press(["ctrl", "s"]);
+```
+
+### 2. Single-Monitor / Targeted Screenshots (Saves Tokens!)
+```ts
+// Avoid huge panoramic multi-monitor screenshots by targeting specific displays
+const shotD1 = await desktop.screenshot({ display: 1 });        // Left monitor
+const shotD2 = await desktop.screenshot({ display: 2 });        // Right monitor
+const primary = await desktop.screenshot({ display: "primary" }); // Main monitor
+
+// Or capture only the target window area:
+const winShot = await win.screenshot();
+```
+
+### 3. Native App Menus & Window Management
+```ts
+// Invoke menu bar items directly via accessibility
+await win.invokeMenu(["File", "Page Setup..."]);
+
+// Set window size & position on screen
+await win.setFrame(100, 100, 1280, 720);
+
+// Zoom into a specific region of a window for crystal-clear OCR/reading
+const crop = await win.zoom(50, 50, 250, 150);
+```
+
+### 4. Direct UI Automation Element Interaction (AX-First)
+```ts
+// Find interactive UI controls by role and title
+const [btn] = await win.find({ role: "button", title: "Save" });
+
+// Click element center directly using UIA bounding boxes (no pixel guessing!)
+await btn.click();
+```
+
+### 5. Full Unrestricted Tool Passthrough (`action: "raw"`)
+```ts
+// Call any native cua-driver tool directly
+const state = await desktop.driverCall("get_screen_size", {});
+```
+
+---
+
+## ⚙️ Settings
+
+Configurable interactively via `/win-computer` or `omp plugin config @tickernelz/omp-windows-computer`:
 
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `shell` | enum (`auto`, `ps5`, `pwsh7`) | `auto` | PowerShell host executable |
-| `maxWidth` | number | `3840` | Screenshot downscale width limit |
-| `maxHeight` | number | `2400` | Screenshot downscale height limit |
+| `driverPath` | string | `""` | Explicit path to `cua-driver.exe` (empty uses auto-discovery/auto-download) |
+| `autoUpdate` | boolean | `true` | Automatically check and update `cua-driver` on launch |
+| `maxWidth` | number | `3840` | Screenshot downscale width limit in pixels |
+| `maxHeight` | number | `2400` | Screenshot downscale height limit in pixels |
 | `imageFormat` | enum (`png`, `jpeg`) | `png` | Image encoding format |
-| `jpegQuality` | number | `82` | Quality factor for JPEG screenshots |
-| `includeCloaked` | boolean | `false` | Include invisible DWM-cloaked windows |
-| `raiseBeforeInput` | boolean | `true` | Restore & focus window before input |
-| `axMaxDepth` | number | `12` | Default accessibility tree depth |
-| `axMaxNodes` | number | `800` | Node cutoff limit for accessibility trees |
-| `callTimeoutMs` | number | `30000` | RPC call deadline |
-| `captureTimeoutMs`| number | `60000` | Screenshot/AX snapshot deadline |
+| `callTimeoutMs`| number | `45000` | Tool call deadline in milliseconds |
 
-## License
+---
+
+## 📄 License
 
 MIT (c) 2026 Zhafron
