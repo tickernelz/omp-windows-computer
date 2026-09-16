@@ -60,7 +60,7 @@ export class ComputerDesktop {
 
   #assertNotReadOnly(action: string): void {
     if (this.#readOnly) {
-      throw new Error(`ReadOnly: ${action} is blocked by read_only: true`);
+      throw new Error("ReadOnly: " + action + " is blocked by read_only: true");
     }
   }
 
@@ -121,12 +121,12 @@ export class ComputerDesktop {
     }
 
     if (matches.length === 0) {
-      throw new Error(`WindowNotFound: no window matches ${JSON.stringify(selector)}`);
+      throw new Error("WindowNotFound: no window matches " + JSON.stringify(selector));
     }
 
     if (matches.length > 1) {
-      const candidates = matches.slice(0, 8).map((m) => `"${m.title}" (${m.app})`).join(" | ");
-      throw new Error(`AmbiguousWindow: ${matches.length} windows match ${JSON.stringify(selector)}: ${candidates}`);
+      const candidates = matches.slice(0, 8).map((m) => "\"" + m.title + "\" (" + m.app + ")").join(" | ");
+      throw new Error("AmbiguousWindow: " + matches.length + " windows match " + JSON.stringify(selector) + ": " + candidates);
     }
 
     return new ComputerWindow(this.#worker, matches[0], this.#readOnly);
@@ -138,16 +138,51 @@ export class ComputerDesktop {
     return focused ? new ComputerWindow(this.#worker, focused, this.#readOnly) : null;
   }
 
-  async screenshot(options: { silent?: boolean; format?: "png" | "jpeg"; maxWidth?: number; maxHeight?: number } = {}): Promise<ComputerScreenshotResult> {
+  async launch(executable: string, args: string[] = [], options: { timeoutMs?: number } = {}): Promise<ComputerWindow> {
+    this.#assertNotReadOnly("launch");
+    const res = await this.#worker.call<any>("launchProcess", {
+      executable,
+      args,
+      timeoutMs: options.timeoutMs || 5000
+    });
+
+    if (res.window) {
+      return new ComputerWindow(this.#worker, {
+        id: res.window.id,
+        app: res.window.app,
+        title: res.window.title,
+        pid: res.window.pid,
+        bounds: { x: res.window.x, y: res.window.y, width: res.window.width, height: res.window.height },
+        x: res.window.x,
+        y: res.window.y,
+        width: res.window.width,
+        height: res.window.height,
+        focused: res.window.focused
+      }, this.#readOnly);
+    }
+
+    await new Promise((r) => setTimeout(r, 600));
+    const baseName = path.basename(executable, path.extname(executable)).toLowerCase();
+    const wins = await this.windows();
+    const found = wins.find((w) => (res.pid && w.pid === res.pid) || w.app.toLowerCase().includes(baseName));
+    if (found) {
+      return new ComputerWindow(this.#worker, found, this.#readOnly);
+    }
+
+    throw new Error("LaunchSuccessWithoutWindow: process \"" + executable + "\" started (pid=" + res.pid + "), but top-level window was not detected within timeout");
+  }
+
+  async screenshot(options: { silent?: boolean; format?: "png" | "jpeg"; maxWidth?: number; maxHeight?: number; display?: number | string | "all" } = {}): Promise<ComputerScreenshotResult> {
     const ts = Date.now();
     const ext = options.format === "jpeg" ? "jpg" : "png";
-    const filename = `shot-${ts}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
+    const filename = "shot-" + ts + "-" + Math.random().toString(36).slice(2, 7) + "." + ext;
     const hostWin = this.#worker.hostInfo;
-    const winPath = `${hostWin.tempDirWindows}\\shots\\${this.#worker.sessionId}\\${filename}`;
+    const winPath = hostWin.tempDirWindows + "\\shots\\" + this.#worker.sessionId + "\\" + filename;
     const hostPath = hostWin.toHostPath(winPath);
 
     const res = await this.#worker.call<any>("capture", {
       target: "screen",
+      display: options.display,
       path: winPath,
       format: options.format || "png",
       maxWidth: options.maxWidth,
@@ -251,7 +286,7 @@ export class ComputerDesktop {
     },
     write: async (text: string): Promise<void> => {
       this.#assertNotReadOnly("clipboard.write");
-      await this.#worker.call("clipboard.write", { text });
+      await this.#worker.call("clipboard.write", { text: text || "" });
     }
   };
 

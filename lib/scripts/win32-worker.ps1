@@ -8,6 +8,7 @@ Add-Type -AssemblyName System.Windows.Forms, System.Drawing, UIAutomationClient,
 Add-Type -ReferencedAssemblies System.Drawing @"
 using System;
 using System.Text;
+using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Collections.Generic;
 
@@ -57,6 +58,8 @@ public static class OmpWin32 {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern void SwitchToThisWindow(IntPtr hWnd, bool fUnknown);
+  [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
   [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
@@ -155,9 +158,9 @@ public static class OmpWin32 {
       GetWindowTextW(hWnd, titleSb, titleSb.Capacity);
       string title = titleSb.ToString();
 
-      uint pid = 0;
-      GetWindowThreadProcessId(hWnd, out pid);
-      string app = GetProcessImageName(pid);
+      uint procId = 0;
+      GetWindowThreadProcessId(hWnd, out procId);
+      string app = GetProcessImageName(procId);
 
       RECT r = new RECT();
       int hr = DwmGetWindowAttribute(hWnd, 9, out r, Marshal.SizeOf(typeof(RECT)));
@@ -178,7 +181,7 @@ public static class OmpWin32 {
       sb.Append(",\"title\":");
       EscapeJsonString(sb, title);
       sb.AppendFormat(",\"pid\":{0},\"x\":{1},\"y\":{2},\"width\":{3},\"height\":{4},\"focused\":{5},\"minimized\":{6},\"cloaked\":{7}}}",
-        pid, r.Left, r.Top, width, height, (hWnd == foreground) ? "true" : "false", isIconic ? "true" : "false", (cloaked != 0) ? "true" : "false");
+        procId, r.Left, r.Top, width, height, (hWnd == foreground) ? "true" : "false", isIconic ? "true" : "false", (cloaked != 0) ? "true" : "false");
 
       return true;
     }, IntPtr.Zero);
@@ -205,6 +208,17 @@ if ($inputSize -ne 40) {
   [Console]::Out.WriteLine((@{ ready = $false; error = "INPUT struct marshalling is $inputSize bytes, expected 40" } | ConvertTo-Json -Compress))
   exit 1
 }
+
+# Clean up session temp folders older than 24 hours
+try {
+  $baseShots = Join-Path $env:LOCALAPPDATA "Temp\omp-windows-computer\shots"
+  if (Test-Path $baseShots) {
+    $cutoff = (Get-Date).AddHours(-24)
+    Get-ChildItem -Path $baseShots -Directory | Where-Object { $_.LastWriteTime -lt $cutoff } | ForEach-Object {
+      Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
+} catch {}
 
 $script:refs = @{}
 $script:refGeneration = 0
@@ -353,6 +367,44 @@ while ($true) {
         continue
       }
 
+      'launchProcess' {
+        $exe = [string]$p.executable
+        $argsList = if ($p.args) { [string[]]$p.args } else { @() }
+        $timeout = if ($p.timeoutMs) { [int]$p.timeoutMs } else { 5000 }
+
+        $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+        $startInfo.FileName = $exe
+        if ($argsList.Count -gt 0) {
+          $startInfo.Arguments = ($argsList -join ' ')
+        }
+        $startInfo.UseShellExecute = $true
+        $proc = [System.Diagnostics.Process]::Start($startInfo)
+        $spawnedPid = if ($null -ne $proc) { $proc.Id } else { 0 }
+
+        $deadline = (Get-Date).AddMilliseconds($timeout)
+        $matchedWin = $null
+        $exeBase = [System.IO.Path]::GetFileNameWithoutExtension($exe).ToLower()
+
+        while ((Get-Date) -lt $deadline) {
+          $json = [OmpWin32]::EnumerateWindowsJson($false, $false)
+          $wins = ($json | ConvertFrom-Json)
+          if ($spawnedPid -gt 0) {
+            $matchedWin = $wins | Where-Object { $_.pid -eq $spawnedPid } | Select-Object -First 1
+          }
+          if ($null -eq $matchedWin) {
+            $matchedWin = $wins | Where-Object { $_.app.ToLower() -eq $exeBase } | Select-Object -First 1
+          }
+          if ($null -ne $matchedWin) { break }
+          Start-Sleep -Milliseconds 150
+        }
+
+        $res = @{
+          ok = $true
+          pid = $spawnedPid
+          window = $matchedWin
+        }
+      }
+
       'capture' {
         $vx = [OmpWin32]::GetSystemMetrics(76)
         $vy = [OmpWin32]::GetSystemMetrics(77)
@@ -376,6 +428,26 @@ while ($true) {
           $srcY = $r.Top
           $srcW = [Math]::Max(1, $r.Right - $r.Left)
           $srcH = [Math]::Max(1, $r.Bottom - $r.Top)
+        } elseif ($p.display -and $p.display -ne "all") {
+          $screens = [System.Windows.Forms.Screen]::AllScreens
+          $targetScreen = $null
+          if ($p.display -eq "primary") {
+            $targetScreen = [System.Windows.Forms.Screen]::PrimaryScreen
+          } elseif ($p.display -is [int] -or ($p.display -match '^\d+$')) {
+            $idx = [int]$p.display - 1
+            if ($idx -ge 0 -and $idx -lt $screens.Count) {
+              $targetScreen = $screens[$idx]
+            }
+          } else {
+            $targetScreen = $screens | Where-Object { $_.DeviceName -eq $p.display } | Select-Object -First 1
+          }
+
+          if ($null -ne $targetScreen) {
+            $srcX = $targetScreen.Bounds.X
+            $srcY = $targetScreen.Bounds.Y
+            $srcW = $targetScreen.Bounds.Width
+            $srcH = $targetScreen.Bounds.Height
+          }
         }
 
         $bmp = New-Object System.Drawing.Bitmap $srcW, $srcH
@@ -440,17 +512,18 @@ while ($true) {
       'raiseWindow' {
         $hWnd = [IntPtr][int64]$p.hwnd
         [void][OmpWin32]::ShowWindow($hWnd, 9)
+        [void][OmpWin32]::BringWindowToTop($hWnd)
+        [void][OmpWin32]::SwitchToThisWindow($hWnd, $true)
         [void][OmpWin32]::SetForegroundWindow($hWnd)
+
         $ok = $false
         for ($i = 0; $i -lt 10; $i++) {
           if ([OmpWin32]::GetForegroundWindow() -eq $hWnd) { $ok = $true; break }
+          [void][OmpWin32]::SwitchToThisWindow($hWnd, $true)
+          [void][OmpWin32]::SetForegroundWindow($hWnd)
           Start-Sleep -Milliseconds 50
         }
-        if (!$ok) {
-          $fg = [OmpWin32]::GetForegroundWindow()
-          throw "RaiseFailed: window hwnd:$($hWnd.ToInt64()) failed to become foreground. Current foreground is hwnd:$($fg.ToInt64())"
-        }
-        $res = @{ raised = $true }
+        $res = @{ raised = $ok; currentForeground = [OmpWin32]::GetForegroundWindow().ToInt64() }
       }
 
       'input.mouse' {
@@ -539,13 +612,13 @@ while ($true) {
           $ch = $text[$i]
           $down = New-Object OmpWin32+INPUT
           $down.type = 1
-          $down.u.ki.wScan = [ushort][int]$ch
+          $down.u.ki.wScan = [uint16][int]$ch
           $down.u.ki.dwFlags = 0x0004
           [void]$inputs.Add($down)
 
           $up = New-Object OmpWin32+INPUT
           $up.type = 1
-          $up.u.ki.wScan = [ushort][int]$ch
+          $up.u.ki.wScan = [uint16][int]$ch
           $up.u.ki.dwFlags = (0x0004 -bor 0x0002)
           [void]$inputs.Add($up)
         }
@@ -573,10 +646,10 @@ while ($true) {
         foreach ($k in $keys) {
           $kLower = $k.ToLower()
           if ($vkMap.ContainsKey($kLower)) {
-            $vkList += [ushort]$vkMap[$kLower]
+            $vkList += [uint16]$vkMap[$kLower]
           } elseif ($k.Length -eq 1) {
             $sc = [OmpWin32]::VkKeyScanW($k[0])
-            $vkList += [ushort]($sc -band 0xFF)
+            $vkList += [uint16]($sc -band 0xFF)
           } else {
             throw "UnknownKeyChord: unrecognized key '$k'"
           }
@@ -674,7 +747,6 @@ while ($true) {
         $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
 
         $stack = New-Object System.Collections.Stack
-        # Store [element, depth]
         $stack.Push(@{ element = $root; depth = 0 })
         $visited = 0
 
@@ -700,11 +772,13 @@ while ($true) {
               $script:refIndex++
               $tag = "e$($script:refIndex)"
               $script:refs[$tag] = @{ element = $child; generation = $script:currentGen }
+              
               $b = $c.BoundingRectangle
               $bObj = $null
               if (![double]::IsInfinity($b.X) -and ![double]::IsInfinity($b.Y) -and ![double]::IsInfinity($b.Width) -and ![double]::IsInfinity($b.Height) -and ![double]::IsNaN($b.X)) {
                 $bObj = @{ x = [int]$b.X; y = [int]$b.Y; width = [int]$b.Width; height = [int]$b.Height }
               }
+
               $results += @{
                 ref = $tag
                 role = $r

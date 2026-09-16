@@ -1,3 +1,12 @@
+## 0.1.2
+
+### Features
+- Add desktop.launch(app, args, options) for 1-liner application launching.
+- Add display selector to screenshot ({ display: 1 | 2 | "primary" | "all" }) to eliminate token waste on multi-monitor setups.
+- Add auto-raise settling guarantee before native input on ComputerWindow.
+- Add bounds-aware direct clicking and focus-aware typing on ComputerElement.
+- Add automated 24-hour cleanup of stale temporary screenshot directories.
+
 ## 0.1.1
 
 ### Fixes

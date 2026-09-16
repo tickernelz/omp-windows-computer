@@ -45,12 +45,12 @@ export class ComputerElement {
   }
 
   toString(): string {
-    return `<element ${this.ref} ${this.role}>`;
+    return "<element " + this.ref + " " + this.role + ">";
   }
 
   #assertNotReadOnly(action: string): void {
     if (this.#readOnly) {
-      throw new Error(`ReadOnly: ${action} is blocked by read_only: true`);
+      throw new Error("ReadOnly: " + action + " is blocked by read_only: true");
     }
   }
 
@@ -79,7 +79,7 @@ export class ComputerElement {
       title: this.title || "",
       enabled: String(this.enabled),
       focused: String(this.focused),
-      bounds: info.bounds ? `${info.bounds.x},${info.bounds.y},${info.bounds.width},${info.bounds.height}` : ""
+      bounds: info.bounds ? info.bounds.x + "," + info.bounds.y + "," + info.bounds.width + "," + info.bounds.height : ""
     };
   }
 
@@ -100,7 +100,7 @@ export class ComputerElement {
     await this.perform("Invoke");
   }
 
-  async click(options: { delivery?: "background" | "foreground" } = {}): Promise<void> {
+  async click(options: { delivery?: "background" | "foreground"; button?: "left" | "right" | "middle" } = {}): Promise<void> {
     this.#assertNotReadOnly("click");
     if (options.delivery === "background") {
       throw new Error("BackgroundUnavailable: the installed native addon supports foreground input only");
@@ -112,7 +112,21 @@ export class ComputerElement {
     }
     const cx = Math.round(b.x + b.width / 2);
     const cy = Math.round(b.y + b.height / 2);
-    await this.#worker.call("input.mouse", { action: "click", x: cx, y: cy, count: 1 });
+    await this.#worker.call("input.mouse", {
+      action: "click",
+      x: cx,
+      y: cy,
+      button: options.button || "left",
+      count: 1
+    });
+  }
+
+  async type(text: string): Promise<void> {
+    this.#assertNotReadOnly("type");
+    try {
+      await this.focus();
+    } catch {}
+    await this.#worker.call("input.type", { text });
   }
 
   async focus(): Promise<void> {

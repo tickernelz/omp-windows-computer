@@ -59,13 +59,18 @@ export class ComputerWindow {
   }
 
   toString(): string {
-    return `<window ${this.id} ${this.app}>`;
+    return "<window " + this.id + " " + this.app + ">";
   }
 
   #assertNotReadOnly(action: string): void {
     if (this.#readOnly) {
-      throw new Error(`ReadOnly: ${action} is blocked by read_only: true`);
+      throw new Error("ReadOnly: " + action + " is blocked by read_only: true");
     }
+  }
+
+  async #ensureForeground(): Promise<void> {
+    await this.raise();
+    await new Promise((r) => setTimeout(r, 60));
   }
 
   async raise(): Promise<void> {
@@ -77,9 +82,9 @@ export class ComputerWindow {
   async screenshot(options: { silent?: boolean; format?: "png" | "jpeg"; maxWidth?: number; maxHeight?: number } = {}): Promise<ComputerScreenshotResult> {
     const ts = Date.now();
     const ext = options.format === "jpeg" ? "jpg" : "png";
-    const filename = `win-${this.app}-${ts}.${ext}`;
+    const filename = "win-" + this.app + "-" + ts + "." + ext;
     const hostWin = this.#worker.hostInfo;
-    const winPath = `${hostWin.tempDirWindows}\\shots\\${this.#worker.sessionId}\\${filename}`;
+    const winPath = hostWin.tempDirWindows + "\\shots\\" + this.#worker.sessionId + "\\" + filename;
     const hostPath = hostWin.toHostPath(winPath);
 
     const res = await this.#worker.call<any>("capture", {
@@ -103,7 +108,7 @@ export class ComputerWindow {
     if (options.delivery === "background") {
       throw new Error("BackgroundUnavailable: the installed native addon supports foreground input only");
     }
-    await this.raise();
+    await this.#ensureForeground();
     const globalX = this.bounds.x + x;
     const globalY = this.bounds.y + y;
     await this.#worker.call("input.mouse", {
@@ -122,6 +127,7 @@ export class ComputerWindow {
 
   async move(x: number, y: number): Promise<void> {
     this.#assertNotReadOnly("move");
+    await this.#ensureForeground();
     const globalX = this.bounds.x + x;
     const globalY = this.bounds.y + y;
     await this.#worker.call("input.mouse", { action: "move", x: globalX, y: globalY });
@@ -132,7 +138,7 @@ export class ComputerWindow {
     if (options.delivery === "background") {
       throw new Error("BackgroundUnavailable: the installed native addon supports foreground input only");
     }
-    await this.raise();
+    await this.#ensureForeground();
     const globalPoints = points.map(([px, py]) => [this.bounds.x + px, this.bounds.y + py]);
     await this.#worker.call("input.mouse", { action: "drag", points: globalPoints });
   }
@@ -142,6 +148,7 @@ export class ComputerWindow {
     if (options.delivery === "background") {
       throw new Error("BackgroundUnavailable: the installed native addon supports foreground input only");
     }
+    await this.#ensureForeground();
     const globalX = this.bounds.x + x;
     const globalY = this.bounds.y + y;
     await this.#worker.call("input.mouse", { action: "scroll", x: globalX, y: globalY, dx: options.dx || 0, dy: options.dy || 0 });
@@ -152,7 +159,7 @@ export class ComputerWindow {
     if (options.delivery === "background") {
       throw new Error("BackgroundUnavailable: the installed native addon supports foreground input only");
     }
-    await this.raise();
+    await this.#ensureForeground();
     await this.#worker.call("input.type", { text });
   }
 
@@ -161,7 +168,7 @@ export class ComputerWindow {
     if (options.delivery === "background") {
       throw new Error("BackgroundUnavailable: the installed native addon supports foreground input only");
     }
-    await this.raise();
+    await this.#ensureForeground();
     const keys = Array.isArray(chord) ? chord : chord.split(/[\s+-]+/).map((k) => k.trim()).filter(Boolean);
     await this.#worker.call("input.keyChord", { keys });
   }
