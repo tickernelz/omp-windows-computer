@@ -1,3 +1,9 @@
+## 0.1.1
+
+### Fixes
+- Fix PowerShell UIAutomation BoundingRectangle emitting Infinity/NaN.
+- Bound ax.query depth to avoid timeouts on browser trees.
+
 ## 0.1.0
 
 ### Features

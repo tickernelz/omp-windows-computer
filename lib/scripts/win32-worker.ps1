@@ -667,17 +667,27 @@ while ($true) {
         $roleFilter = $p.role
         $titleFilter = $p.title
         $limit = if ($p.limit) { [int]$p.limit } else { 10 }
+        $maxDepth = if ($p.maxDepth) { [int]$p.maxDepth } else { 6 }
+        $maxNodes = if ($p.maxNodes) { [int]$p.maxNodes } else { 300 }
 
         $results = @()
         $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
 
         $stack = New-Object System.Collections.Stack
-        $stack.Push($root)
+        # Store [element, depth]
+        $stack.Push(@{ element = $root; depth = 0 })
+        $visited = 0
 
-        while ($stack.Count -gt 0 -and $results.Count -lt $limit) {
-          $curr = $stack.Pop()
+        while ($stack.Count -gt 0 -and $results.Count -lt $limit -and $visited -lt $maxNodes) {
+          $item = $stack.Pop()
+          $curr = $item.element
+          $currDepth = $item.depth
+
+          if ($currDepth -ge $maxDepth) { continue }
+
           $child = $walker.GetFirstChild($curr)
-          while ($null -ne $child -and $results.Count -lt $limit) {
+          while ($null -ne $child -and $results.Count -lt $limit -and $visited -lt $maxNodes) {
+            $visited++
             $c = $child.Current
             $r = $c.ControlType.ProgrammaticName.Replace("ControlType.", "").ToLower()
             $nm = $c.Name
@@ -691,6 +701,10 @@ while ($true) {
               $tag = "e$($script:refIndex)"
               $script:refs[$tag] = @{ element = $child; generation = $script:currentGen }
               $b = $c.BoundingRectangle
+              $bObj = $null
+              if (![double]::IsInfinity($b.X) -and ![double]::IsInfinity($b.Y) -and ![double]::IsInfinity($b.Width) -and ![double]::IsInfinity($b.Height) -and ![double]::IsNaN($b.X)) {
+                $bObj = @{ x = [int]$b.X; y = [int]$b.Y; width = [int]$b.Width; height = [int]$b.Height }
+              }
               $results += @{
                 ref = $tag
                 role = $r
@@ -698,10 +712,10 @@ while ($true) {
                 title = $nm
                 enabled = $c.IsEnabled
                 focused = $c.HasKeyboardFocus
-                bounds = @{ x = $b.X; y = $b.Y; width = $b.Width; height = $b.Height }
+                bounds = $bObj
               }
             }
-            $stack.Push($child)
+            $stack.Push(@{ element = $child; depth = $currDepth + 1 })
             $child = $walker.GetNextSibling($child)
           }
         }
@@ -712,6 +726,10 @@ while ($true) {
         $el = Resolve-Ref $p.ref
         $c = $el.Current
         $b = $c.BoundingRectangle
+        $bObj = $null
+        if (![double]::IsInfinity($b.X) -and ![double]::IsInfinity($b.Y) -and ![double]::IsInfinity($b.Width) -and ![double]::IsInfinity($b.Height) -and ![double]::IsNaN($b.X)) {
+          $bObj = @{ x = [int]$b.X; y = [int]$b.Y; width = [int]$b.Width; height = [int]$b.Height }
+        }
         $patterns = @($el.GetSupportedPatterns() | ForEach-Object { $_.ProgrammaticName })
 
         $res = @{
@@ -721,7 +739,7 @@ while ($true) {
           title = $c.Name
           enabled = $c.IsEnabled
           focused = $c.HasKeyboardFocus
-          bounds = @{ x = $b.X; y = $b.Y; width = $b.Width; height = $b.Height }
+          bounds = $bObj
           actions = $patterns
         }
       }

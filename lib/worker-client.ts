@@ -146,7 +146,9 @@ export class WindowsWorker {
     if (!trimmed) return;
 
     try {
-      const data = JSON.parse(trimmed);
+      const sanitized = trimmed.replace(/:\s*(-?Infinity|NaN)/g, ": null");
+      const data = JSON.parse(sanitized);
+
       if (data.ready !== undefined) {
         if (data.ready) {
           this.#readyResolve?.();
