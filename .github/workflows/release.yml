@@ -1,0 +1,128 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/validate.yml
+
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Check out exact tag
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22.19.0
+          registry-url: https://registry.npmjs.org
+      - name: Preflight exact tag, package, and changelog
+        id: preflight
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { execFileSync } from "node:child_process";
+          import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+
+          const tagName = process.env.TAG_NAME;
+          if (!tagName || !/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(tagName)) {
+            throw new Error(`Invalid release tag: ${tagName ?? "missing"}.`);
+          }
+          if (process.env.GITHUB_REF !== `refs/tags/${tagName}`) {
+            throw new Error(`Release checkout must use refs/tags/${tagName}, received ${process.env.GITHUB_REF ?? "missing"}.`);
+          }
+
+          const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).trim();
+          const headCommit = git("rev-parse", "HEAD^{commit}");
+          const tagCommit = git("rev-parse", `refs/tags/${tagName}^{commit}`);
+          const eventCommit = process.env.GITHUB_SHA
+            ? git("rev-parse", `${process.env.GITHUB_SHA}^{commit}`)
+            : "";
+          if (headCommit !== tagCommit || eventCommit !== tagCommit) {
+            throw new Error(`Release checkout is not the immutable tag commit: head=${headCommit} tag=${tagCommit} event=${eventCommit || "missing"}.`);
+          }
+
+          const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+          const packageLock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+          const version = tagName.slice(1);
+          if (packageJson.version !== version) {
+            throw new Error(`Tag ${tagName} does not match package.json version ${packageJson.version}.`);
+          }
+          if (packageLock.version !== version || packageLock.packages?.[""]?.version !== version) {
+            throw new Error(`Tag ${tagName} does not match package-lock.json version metadata.`);
+          }
+
+          const changelog = readFileSync("CHANGELOG.md", "utf8");
+          const escapedVersion = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const pattern = new RegExp(`^##\\s+(${escapedVersion}(?:[^\\n]*)?)\\n([\\s\\S]*?)(?=^##\\s+|(?![\\s\\S]))`, "m");
+          const match = changelog.match(pattern);
+          if (!match) throw new Error(`CHANGELOG.md has no section for ${version}.`);
+          const title = match[1].trim();
+          const notes = match[2].trim();
+          if (!notes) throw new Error(`CHANGELOG.md section for ${version} is empty.`);
+          if (!process.env.GITHUB_OUTPUT) throw new Error("Missing GITHUB_OUTPUT.");
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\ntag_commit=${tagCommit}\n`);
+          writeFileSync("release-title.txt", `${title}\n`);
+          writeFileSync("release-notes.md", `${notes}\n`);
+          NODE
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Resolve npm publication state
+        id: npm-state
+        env:
+          PACKAGE_NAME: "@tickernelz/omp-windows-computer"
+          TAG_COMMIT: ${{ steps.preflight.outputs.tag_commit }}
+          VERSION: ${{ steps.preflight.outputs.version }}
+        run: |
+          set +e
+          npm view "$PACKAGE_NAME@$VERSION" --json version gitHead > npm-existing.json 2> npm-existing.err
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          elif grep -Eq 'E404|404 Not Found' npm-existing.err; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            cat npm-existing.err >&2
+            exit "$status"
+          fi
+      - name: Publish npm package
+        if: steps.npm-state.outputs.publish == 'true'
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Release $TAG_NAME already exists; updating title and notes."
+            gh release edit "$TAG_NAME" \
+              --title "$(cat release-title.txt)" \
+              --notes-file release-notes.md
+          else
+            gh release create "$TAG_NAME" \
+              --title "$(cat release-title.txt)" \
+              --notes-file release-notes.md \
+              --verify-tag
+          fi
