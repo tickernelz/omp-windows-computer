@@ -23,7 +23,9 @@ omp plugin install @tickernelz/omp-windows-computer
 
 For local development:
 ```bash
-omp plugin link ~/Projects/omp-windows-computer
+git clone https://github.com/tickernelz/omp-windows-computer.git
+cd omp-windows-computer
+omp plugin link .
 ```
 
 ## Settings
