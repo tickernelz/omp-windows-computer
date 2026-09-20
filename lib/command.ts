@@ -103,6 +103,24 @@ export async function runDoctor(ctx: ExtensionCommandContext, worker: WindowsWor
     if (driver) {
       const up = await worker.checkUpdate();
       lines.push("✔ Version: " + up.currentVersion + (up.updateAvailable ? " (update available: " + up.latestVersion + ")" : " (up-to-date)"));
+
+      try {
+        const health = await worker.call<any>("health_report", {}, { timeoutMs: 8000 });
+        if (Array.isArray(health.checks)) {
+          for (const c of health.checks) {
+            if (c.name && c.status === "pass") {
+              lines.push("✔ Native check " + c.name + ": " + (c.message || "ok"));
+            }
+          }
+        }
+      } catch {}
+
+      try {
+        const perms = await worker.call<any>("check_permissions", {}, { timeoutMs: 8000 });
+        if (perms.integrity_level) {
+          lines.push("✔ Permissions: integrity=" + perms.integrity_level + ", uia=" + perms.uia + ", post_message=" + perms.post_message);
+        }
+      } catch {}
     }
   } catch (err: any) {
     lines.push("✖ Driver check warning: " + err.message);
@@ -189,6 +207,7 @@ export function createWinComputerCommand(worker: WindowsWorker): RegisteredComma
           }
           ctx.ui?.notify?.("Applying update to " + up.latestVersion + "...", "info");
           const res = await worker.applyUpdate();
+          worker.restart();
           ctx.ui?.notify?.("cua-driver updated successfully to " + up.latestVersion + "!\n" + res.output, "info");
         } catch (err: any) {
           ctx.ui?.notify?.("Update failed: " + err.message, "error");

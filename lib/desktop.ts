@@ -202,8 +202,26 @@ export class ComputerDesktop {
     this.#assertNotReadOnly("launch");
     const res = await this.#worker.call<any>("launch_app", {
       path: executable,
-      urls: args
+      additional_arguments: args
     });
+
+    if (Array.isArray(res.windows) && res.windows.length > 0) {
+      const firstWin = res.windows[0];
+      const winInfo: ComputerWindowInfo = {
+        id: "hwnd:" + firstWin.window_id,
+        windowId: firstWin.window_id,
+        pid: res.pid || firstWin.pid,
+        app: firstWin.title?.split(" - ").pop()?.trim() || path.basename(executable, path.extname(executable)),
+        title: firstWin.title || "",
+        bounds: { x: firstWin.x, y: firstWin.y, width: firstWin.width, height: firstWin.height },
+        x: firstWin.x,
+        y: firstWin.y,
+        width: firstWin.width,
+        height: firstWin.height,
+        focused: Boolean(firstWin.is_on_screen && !firstWin.minimized)
+      };
+      return new ComputerWindow(this.#worker, winInfo, this.#readOnly);
+    }
 
     const pid = res.pid;
     const timeout = options.timeoutMs || 6000;

@@ -4,6 +4,7 @@ import { WindowsWorker } from "./worker-client.ts";
 import { ComputerElement, type ComputerElementSnapshot } from "./element.ts";
 import type { ComputerScreenshotResult } from "./desktop.ts";
 import { optimizeScreenshot } from "./image-optimizer.ts";
+import { normalizeUiaRole } from "./roles.ts";
 
 export interface ComputerBounds {
   x: number;
@@ -164,26 +165,30 @@ export class ComputerWindow {
   }
 
   async screenshot(options: { silent?: boolean; format?: "png" | "jpeg"; maxWidth?: number; maxHeight?: number } = {}): Promise<ComputerScreenshotResult> {
-    const res = await this.#worker.call<any>("get_window_state", {
-      pid: this.pid,
-      window_id: this.windowId
-    });
-
-    const b64 = res.screenshot_png_b64;
-    if (!b64) {
-      throw new Error("ScreenshotFailed: get_window_state returned empty image");
-    }
-
-    const buf = Buffer.from(b64, "base64");
     const ts = Date.now();
     const filename = "win-" + this.app + "-" + ts + ".png";
     const hostWin = this.#worker.hostInfo;
     const hostPath = path.join(hostWin.tempDirHost, "shots", this.#worker.sessionId, filename);
+    const winPath = hostWin.toWindowsPath(hostPath);
 
     fs.mkdirSync(path.dirname(hostPath), { recursive: true });
-    fs.writeFileSync(hostPath, buf);
 
-    // Auto-compress & downscale using image-optimizer (default max 1280px JPEG, ~40KB)
+    const res = await this.#worker.call<any>("get_window_state", {
+      pid: this.pid,
+      window_id: this.windowId,
+      include_accessibility_tree: false,
+      screenshot_out_file: winPath
+    });
+
+    if (!fs.existsSync(hostPath) && res.screenshot_png_b64) {
+      const buf = Buffer.from(res.screenshot_png_b64, "base64");
+      fs.writeFileSync(hostPath, buf);
+    }
+
+    if (!fs.existsSync(hostPath)) {
+      throw new Error("ScreenshotFailed: get_window_state returned empty image: " + JSON.stringify(res));
+    }
+
     const optimized = optimizeScreenshot(hostPath, {
       maxWidth: options.maxWidth || 1280,
       format: options.format || "jpeg"
@@ -286,15 +291,17 @@ export class ComputerWindow {
   async ax(options: ComputerAxOptions = {}): Promise<string> {
     const res = await this.#worker.call<any>("get_window_state", {
       pid: this.pid,
-      window_id: this.windowId
+      window_id: this.windowId,
+      include_screenshot: false
     }, { idempotent: true });
-    return res.markdown_tree || (res.window_title ? "- window \"" + res.window_title + "\" [ref=e0]" : "");
+    return res.tree_markdown || res.markdown_tree || (res.window_title ? "- window \"" + res.window_title + "\" [ref=e0]" : "");
   }
 
   async find(query: ComputerAxQuery): Promise<ComputerElement[]> {
     const res = await this.#worker.call<any>("get_window_state", {
       pid: this.pid,
-      window_id: this.windowId
+      window_id: this.windowId,
+      include_screenshot: false
     }, { idempotent: true });
 
     const elements: any[] = res.elements || [];
@@ -302,11 +309,19 @@ export class ComputerWindow {
 
     if (query.role) {
       const rL = query.role.toLowerCase();
-      matched = matched.filter((e) => (e.role || "").toLowerCase().includes(rL));
+      matched = matched.filter((e) => {
+        const rawRole = (e.role || "").toLowerCase();
+        const normRole = normalizeUiaRole(e.role || "").toLowerCase();
+        return rawRole.includes(rL) || normRole.includes(rL);
+      });
     }
     if (query.title) {
       const tL = query.title.toLowerCase();
-      matched = matched.filter((e) => (e.label || "").toLowerCase().includes(tL));
+      matched = matched.filter((e) => {
+        const labelStr = (e.label || "").toLowerCase();
+        const titleStr = (e.title || "").toLowerCase();
+        return labelStr.includes(tL) || titleStr.includes(tL);
+      });
     }
 
     const limit = query.limit || 10;

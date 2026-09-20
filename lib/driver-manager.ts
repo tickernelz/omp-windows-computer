@@ -27,6 +27,9 @@ export function resolveCuaDriverPath(explicitPath?: string, hostInfo?: HostInfo)
     const localApp = process.env.LOCALAPPDATA || "C:\\Users\\Default\\AppData\\Local";
     const standardWin = path.join(localApp, "Programs", "Cua", "cua-driver", "bin", "cua-driver.exe");
     if (fs.existsSync(standardWin)) return standardWin;
+    const userProfile = process.env.USERPROFILE || "C:\\Users\\Default";
+    const dotCuaWin = path.join(userProfile, ".cua-driver", "packages", "current", "cua-driver.exe");
+    if (fs.existsSync(dotCuaWin)) return dotCuaWin;
   } else {
     try {
       const localAppWin = host.tempDirWindows.replace(/[\\\/]Temp[\\\/]omp-windows-computer$/i, "");
@@ -42,8 +45,10 @@ export function resolveCuaDriverPath(explicitPath?: string, hostInfo?: HostInfo)
       const usersDir = path.join(cMount, "Users");
       if (fs.existsSync(usersDir)) {
         for (const u of fs.readdirSync(usersDir)) {
-          const cand = path.join(usersDir, u, "AppData", "Local", "Programs", "Cua", "cua-driver", "bin", "cua-driver.exe");
-          if (fs.existsSync(cand)) return cand;
+          const candAppData = path.join(usersDir, u, "AppData", "Local", "Programs", "Cua", "cua-driver", "bin", "cua-driver.exe");
+          if (fs.existsSync(candAppData)) return candAppData;
+          const candDotCua = path.join(usersDir, u, ".cua-driver", "packages", "current", "cua-driver.exe");
+          if (fs.existsSync(candDotCua)) return candDotCua;
         }
       }
     } catch {}

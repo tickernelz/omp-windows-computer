@@ -88,13 +88,15 @@ export class ComputerElement {
 
   async setValue(value: string): Promise<void> {
     this.#assertNotReadOnly("setValue");
-    if (this.pid && this.windowId && this.elementIndex !== undefined) {
-      await this.#worker.call("set_value", {
+    if (this.pid && this.windowId && (this.elementIndex !== undefined || this.elementToken)) {
+      const params: Record<string, unknown> = {
         pid: this.pid,
         window_id: this.windowId,
-        element_index: this.elementIndex,
         value
-      });
+      };
+      if (this.elementToken) params.element_token = this.elementToken;
+      if (this.elementIndex !== undefined) params.element_index = this.elementIndex;
+      await this.#worker.call("set_value", params);
       this.#val = value;
     } else {
       throw new Error("SetValueFailed: element lacks PID/windowId context for set_value");
@@ -130,14 +132,16 @@ export class ComputerElement {
 
   async click(options: { delivery?: "background" | "foreground"; button?: "left" | "right" | "middle" } = {}): Promise<void> {
     this.#assertNotReadOnly("click");
-    if (this.pid && this.windowId && this.elementIndex !== undefined) {
-      await this.#worker.call("click", {
+    if (this.pid && this.windowId && (this.elementIndex !== undefined || this.elementToken)) {
+      const params: Record<string, unknown> = {
         pid: this.pid,
         window_id: this.windowId,
-        element_index: this.elementIndex,
         button: options.button || "left",
         delivery_mode: options.delivery || "foreground"
-      });
+      };
+      if (this.elementToken) params.element_token = this.elementToken;
+      if (this.elementIndex !== undefined) params.element_index = this.elementIndex;
+      await this.#worker.call("click", params);
       return;
     }
 
@@ -159,14 +163,16 @@ export class ComputerElement {
 
   async type(text: string): Promise<void> {
     this.#assertNotReadOnly("type");
-    if (this.pid && this.windowId && this.elementIndex !== undefined) {
-      await this.#worker.call("type_text", {
+    if (this.pid && this.windowId && (this.elementIndex !== undefined || this.elementToken)) {
+      const params: Record<string, unknown> = {
         pid: this.pid,
         window_id: this.windowId,
-        element_index: this.elementIndex,
         text,
         delivery_mode: "foreground"
-      });
+      };
+      if (this.elementToken) params.element_token = this.elementToken;
+      if (this.elementIndex !== undefined) params.element_index = this.elementIndex;
+      await this.#worker.call("type_text", params);
     } else {
       await this.#worker.call("type_text", { scope: "desktop", text, delivery_mode: "foreground" });
     }
