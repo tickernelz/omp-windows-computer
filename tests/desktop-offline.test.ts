@@ -224,3 +224,41 @@ test("ComputerDesktop: launch passes additional_arguments and handles immediate 
   assert.strictEqual(win.windowId, 770);
   assert.strictEqual(win.pid, 77);
 });
+
+test("ComputerDesktop: window filter with pid and windowId resolves exactly one window", async () => {
+  const worker = new WindowsWorker({
+    driverPath: "/mock/cua-driver.exe",
+    hostInfo: {
+      kind: "wsl",
+      shellPath: "/mock/powershell.exe",
+      toWindowsPath: (p) => p,
+      toHostPath: (p) => p,
+      tempDirHost: "/tmp/mock",
+      tempDirWindows: "C:\\mock",
+      systemRootWindows: "C:\\Windows",
+      programFilesWindows: "C:\\Program Files"
+    }
+  });
+
+  (worker as any).call = async (method: string) => {
+    if (method === "list_windows") {
+      return {
+        _legacy_windows: [
+          { window_id: 10, pid: 100, title: "Zen Browser", x: 0, y: 0, width: 800, height: 600, is_on_screen: true, minimized: false },
+          { window_id: 11, pid: 100, title: "Explorer", x: 0, y: 0, width: 400, height: 300, is_on_screen: true, minimized: false }
+        ]
+      };
+    }
+    return {};
+  };
+
+  const desktop = new ComputerDesktop(worker);
+  const win = await desktop.window({ pid: 100, windowId: 11 });
+  assert.strictEqual(win.windowId, 11);
+  assert.strictEqual(win.title, "Explorer");
+
+  assert.deepStrictEqual((await desktop.windows({ windowId: 10, pid: 100 })).map((w) => w.windowId), [10]);
+  assert.deepStrictEqual(await desktop.windows({ pid: 100, windowId: 999 }), []);
+  await assert.rejects(() => desktop.windows({ pid: 100 }), /WindowFilterInvalid/);
+  await assert.rejects(() => desktop.window({ pid: 100, windowId: 999 }), /WindowNotFound/);
+});

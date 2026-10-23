@@ -1,3 +1,8 @@
+## 0.3.4
+
+### Fixes
+- `desktop.window({ pid, windowId })` resolves the exact window: filter matching on pid alone listed every window and made object selectors throw AmbiguousWindow.
+
 ## 0.3.3
 
 ### Cua-Driver 0.38.0 Alignment

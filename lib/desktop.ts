@@ -133,6 +133,14 @@ export class ComputerDesktop {
 
     if (!filter) return list;
 
+    if (filter.pid !== undefined || filter.windowId !== undefined) {
+      if (filter.pid === undefined || filter.windowId === undefined) {
+        throw new Error("WindowFilterInvalid: pid and windowId must be given together");
+      }
+      const exact = list.find((w) => w.pid === filter.pid && w.windowId === filter.windowId);
+      return exact ? [exact] : [];
+    }
+
     let filtered = list;
     if (filter.app) {
       const appL = filter.app.toLowerCase();
@@ -171,6 +179,8 @@ export class ComputerDesktop {
         const selL = selector.toLowerCase();
         matches = all.filter((w) => w.app.toLowerCase().includes(selL) || w.title.toLowerCase().includes(selL));
       }
+    } else if (selector.pid !== undefined || selector.windowId !== undefined) {
+      matches = await this.windows(selector);
     } else {
       matches = all.filter((w) => {
         let ok = true;

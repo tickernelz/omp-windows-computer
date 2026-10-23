@@ -26,6 +26,8 @@ export interface ComputerWindowInfo extends ComputerBounds {
 export interface ComputerWindowFilter {
   app?: string;
   title?: string;
+  pid?: number;
+  windowId?: number;
 }
 
 export interface ComputerAxOptions {
