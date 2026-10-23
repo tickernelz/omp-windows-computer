@@ -301,7 +301,8 @@ export class ComputerWindow {
     const res = await this.#worker.call<any>("get_window_state", {
       pid: this.pid,
       window_id: this.windowId,
-      include_screenshot: false
+      include_screenshot: false,
+      tree_format: "elements"
     }, { idempotent: true });
 
     const elements: any[] = res.elements || [];
@@ -335,7 +336,9 @@ export class ComputerWindow {
   async ref(tag: string): Promise<ComputerElement> {
     const res = await this.#worker.call<any>("get_window_state", {
       pid: this.pid,
-      window_id: this.windowId
+      window_id: this.windowId,
+      include_screenshot: false,
+      tree_format: "elements"
     }, { idempotent: true });
 
     const idx = parseInt(tag.replace(/^e/i, ""), 10);

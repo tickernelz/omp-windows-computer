@@ -47,6 +47,7 @@ omp plugin link .
 You don't need to manually configure binaries or background services:
 - **Auto-Download**: If `cua-driver.exe` is missing on your Windows host, the plugin automatically triggers the official installer (`irm https://cua.ai/driver/install.ps1 | iex`).
 - **Auto-Update**: Automatically checks GitHub releases on startup and keeps your driver updated.
+- **Driver Compatibility**: Validated against `cua-driver` 0.38.0; elements are addressed with `element_token`, the schema the driver exposes from 0.29 onward.
 - **On-Demand TUI Control**:
   - `/win-computer doctor` — End-to-end self-diagnostic (checks driver binary, permissions, display resolution, and latency).
   - `/win-computer update` — Check and trigger driver upgrades on-demand.

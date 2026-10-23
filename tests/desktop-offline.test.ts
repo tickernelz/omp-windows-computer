@@ -116,10 +116,16 @@ test("ComputerWindow: find matches normalized and raw roles, ax passes include_s
   assert.ok(axRes.includes("- window"));
 
   assert.strictEqual(calls[0].params.include_screenshot, false);
+  assert.strictEqual(calls[0].params.tree_format, "elements");
   assert.strictEqual(calls[1].params.include_screenshot, false);
+  assert.strictEqual(calls[1].params.tree_format, "elements");
+
+  const byRef = await dummyWin.ref("e1");
+  assert.strictEqual(byRef.elementToken, "s1:1");
+  assert.strictEqual(calls[3].params.tree_format, "elements");
 });
 
-test("ComputerElement: click, setValue, and type forward element_token", async () => {
+test("ComputerElement: click, setValue, and type address elements by token", async () => {
   const calls: Array<{ method: string; params: any }> = [];
   const worker = new WindowsWorker({
     driverPath: "/mock/cua-driver.exe",
@@ -153,17 +159,32 @@ test("ComputerElement: click, setValue, and type forward element_token", async (
   await el.click();
   assert.strictEqual(calls[0].method, "click");
   assert.strictEqual(calls[0].params.element_token, "s009:3");
-  assert.strictEqual(calls[0].params.element_index, 3);
+  assert.strictEqual(calls[0].params.element_index, undefined);
 
   await el.setValue("hello");
   assert.strictEqual(calls[1].method, "set_value");
   assert.strictEqual(calls[1].params.element_token, "s009:3");
+  assert.strictEqual(calls[1].params.element_index, undefined);
   assert.strictEqual(calls[1].params.value, "hello");
 
   await el.type("world");
   assert.strictEqual(calls[2].method, "type_text");
   assert.strictEqual(calls[2].params.element_token, "s009:3");
+  assert.strictEqual(calls[2].params.element_index, undefined);
   assert.strictEqual(calls[2].params.text, "world");
+
+  const legacy = new ComputerElement(worker, {
+    pid: 51,
+    windowId: 501,
+    element_index: 7,
+    role: "Button",
+    label: "Legacy"
+  });
+  await legacy.click();
+  assert.strictEqual(calls[3].method, "click");
+  assert.strictEqual(calls[3].params.element_index, 7);
+  assert.strictEqual(calls[3].params.window_id, 501);
+  assert.strictEqual(calls[3].params.element_token, undefined);
 });
 
 test("ComputerDesktop: launch passes additional_arguments and handles immediate windows", async () => {

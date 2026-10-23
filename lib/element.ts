@@ -76,6 +76,13 @@ export class ComputerElement {
     return "<element " + this.ref + " " + this.role + ">";
   }
 
+  #addressing(): Record<string, unknown> {
+    if (this.elementToken) {
+      return { pid: this.pid, window_id: this.windowId, element_token: this.elementToken };
+    }
+    return { pid: this.pid, window_id: this.windowId, element_index: this.elementIndex };
+  }
+
   #assertNotReadOnly(action: string): void {
     if (this.#readOnly) {
       throw new Error("ReadOnly: " + action + " is blocked by read_only: true");
@@ -89,13 +96,7 @@ export class ComputerElement {
   async setValue(value: string): Promise<void> {
     this.#assertNotReadOnly("setValue");
     if (this.pid && this.windowId && (this.elementIndex !== undefined || this.elementToken)) {
-      const params: Record<string, unknown> = {
-        pid: this.pid,
-        window_id: this.windowId,
-        value
-      };
-      if (this.elementToken) params.element_token = this.elementToken;
-      if (this.elementIndex !== undefined) params.element_index = this.elementIndex;
+      const params: Record<string, unknown> = { ...this.#addressing(), value };
       await this.#worker.call("set_value", params);
       this.#val = value;
     } else {
@@ -134,13 +135,10 @@ export class ComputerElement {
     this.#assertNotReadOnly("click");
     if (this.pid && this.windowId && (this.elementIndex !== undefined || this.elementToken)) {
       const params: Record<string, unknown> = {
-        pid: this.pid,
-        window_id: this.windowId,
+        ...this.#addressing(),
         button: options.button || "left",
         delivery_mode: options.delivery || "foreground"
       };
-      if (this.elementToken) params.element_token = this.elementToken;
-      if (this.elementIndex !== undefined) params.element_index = this.elementIndex;
       await this.#worker.call("click", params);
       return;
     }
@@ -165,13 +163,10 @@ export class ComputerElement {
     this.#assertNotReadOnly("type");
     if (this.pid && this.windowId && (this.elementIndex !== undefined || this.elementToken)) {
       const params: Record<string, unknown> = {
-        pid: this.pid,
-        window_id: this.windowId,
+        ...this.#addressing(),
         text,
         delivery_mode: "foreground"
       };
-      if (this.elementToken) params.element_token = this.elementToken;
-      if (this.elementIndex !== undefined) params.element_index = this.elementIndex;
       await this.#worker.call("type_text", params);
     } else {
       await this.#worker.call("type_text", { scope: "desktop", text, delivery_mode: "foreground" });

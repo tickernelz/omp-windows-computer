@@ -1,3 +1,16 @@
+## 0.3.3
+
+### Cua-Driver 0.38.0 Alignment
+- Address elements by `element_token`: `element_index` and `snapshot_id` are no longer sent, matching the 0.38 input schemas of `click`, `type_text`, `set_value`, `scroll`, `hotkey`, and `press_key`.
+- Request `tree_format: "elements"` from `find()` and `ref()`: 0.38 returns Markdown-only by default, which left the element array empty.
+- Snapshots that carry only `element_index` (older drivers) still fall back to `window_id` + `element_index`; 0.28.2 ignores `tree_format` and keeps returning elements.
+- Verified on both 0.38.0 and 0.28.2: token addressing, window and desktop capture, and identical shapes for `get_screen_size`, `list_windows`, and `get_accessibility_tree`.
+
+### Included Unreleased 0.3.2 Work
+- Pass `additional_arguments` to `launch_app` and reuse the window returned by the launch instead of polling.
+- Add screenshot downscale/encode settings (`maxWidth`, `maxHeight`, `imageFormat`) and route captures through the image optimizer.
+- Request `include_screenshot: false` from `ax()` and `find()` to cut snapshot payloads.
+
 ## 0.3.1
 
 ### Optimizations & Workflow Enhancements
