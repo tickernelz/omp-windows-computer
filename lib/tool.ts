@@ -6,39 +6,26 @@ import type { AgentToolResult } from "@oh-my-pi/pi-agent-core";
 import { WindowsWorker } from "./worker-client.ts";
 import { ComputerDesktop } from "./desktop.ts";
 
-export const WinComputerToolSchema = Type.Union([
-  Type.Object({
-    action: Type.Literal("run"),
-    code: Type.Optional(Type.String({ description: "JavaScript executed in the desktop session; desktop, wait, assert, args in scope" })),
-    fn: Type.Optional(Type.String({ description: "Serialized function string receiving ({ desktop, wait, assert }, ...args)" })),
-    args: Type.Optional(Type.Array(Type.Unknown(), { description: "Positional function arguments" })),
-    read_only: Type.Optional(Type.Boolean({ description: "true = desktop inspection only (screenshots, ax, reads); input mutation blocked" })),
-    timeout: Type.Optional(Type.Number({ description: "Run budget in seconds" }))
+export const WinComputerToolSchema = Type.Object({
+  action: Type.String({
+    enum: ["run", "call", "raw", "capabilities", "close"],
+    description: "What to do: run a script, call desktop methods, call a raw cua-driver tool, read capabilities, or close the session"
   }),
-  Type.Object({
-    action: Type.Literal("call"),
-    chain: Type.Array(
-      Type.Object({
-        method: Type.String({ description: "Method name to invoke" }),
-        args: Type.Array(Type.Unknown(), { description: "Method arguments" })
-      }),
-      { description: "Desktop helper invocation with at most one window/element handle hop" }
-    ),
-    timeout: Type.Optional(Type.Number({ description: "Run budget in seconds" }))
-  }),
-  Type.Object({
-    action: Type.Literal("raw"),
-    tool: Type.String({ description: "Direct cua-driver native tool name (e.g. list_apps, kill_app, get_screen_size, set_config)" }),
-    params: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "Parameters passed to cua-driver native tool" })),
-    timeout: Type.Optional(Type.Number({ description: "Run budget in seconds" }))
-  }),
-  Type.Object({
-    action: Type.Literal("capabilities")
-  }),
-  Type.Object({
-    action: Type.Literal("close")
-  })
-]);
+  code: Type.Optional(Type.String({ description: "JavaScript executed in the desktop session; desktop, wait, assert, args in scope" })),
+  fn: Type.Optional(Type.String({ description: "Serialized function string receiving ({ desktop, wait, assert }, ...args)" })),
+  args: Type.Optional(Type.Array(Type.Unknown(), { description: "Positional function arguments" })),
+  read_only: Type.Optional(Type.Boolean({ description: "true = desktop inspection only (screenshots, ax, reads); input mutation blocked" })),
+  chain: Type.Optional(Type.Array(
+    Type.Object({
+      method: Type.String({ description: "Method name to invoke" }),
+      args: Type.Array(Type.Unknown(), { description: "Method arguments" })
+    }),
+    { description: "Desktop helper invocation with at most one window/element handle hop" }
+  )),
+  tool: Type.Optional(Type.String({ description: "Direct cua-driver native tool name (e.g. list_apps, kill_app, get_screen_size, set_config)" })),
+  params: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "Parameters passed to cua-driver native tool" })),
+  timeout: Type.Optional(Type.Number({ description: "Run budget in seconds" }))
+});
 
 export type WinComputerParams = Static<typeof WinComputerToolSchema>;
 
@@ -99,7 +86,7 @@ export function createWinComputerTool(worker: WindowsWorker): ToolDefinition<typ
       "- Direct Cua Tool Passthrough: { action: 'raw', tool: 'list_apps', params: {} }\\n" +
       "- Multi-step scripting: { action: 'run', code: '...' } with { desktop, wait, assert } in scope.",
     parameters: WinComputerToolSchema,
-    strict: true,
+    strict: false,
     approval: (params: unknown) => winComputerApproval(params as WinComputerParams),
     execute: async (toolCallId, params, signal, onUpdate, ctx): Promise<AgentToolResult> => {
       if (params.action === "capabilities") {

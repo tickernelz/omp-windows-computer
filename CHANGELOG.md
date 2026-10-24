@@ -1,3 +1,9 @@
+## 0.3.5
+
+### Fixes
+- Emit `win_computer` parameters as a single JSON object schema. The previous `anyOf` union had no top-level `type`, so providers rejected the tool with `schema must be a JSON Schema of type: "object", got type: null`.
+- Drop strict-mode schema enforcement, which cannot express the optional `action`-specific fields.
+
 ## 0.3.4
 
 ### Fixes
