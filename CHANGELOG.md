@@ -1,3 +1,8 @@
+## 0.3.6
+
+### Fixes
+- Describe `params` as `{"type":"object","additionalProperties":true}` instead of `patternProperties`, which strict OpenAI-compatible validators reject.
+
 ## 0.3.5
 
 ### Fixes

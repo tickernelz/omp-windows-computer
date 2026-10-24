@@ -1,6 +1,6 @@
 {
   "name": "@tickernelz/omp-windows-computer",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "Windows host desktop automation for OMP, from WSL2 or native Windows",
   "keywords": [
     "omp-package",

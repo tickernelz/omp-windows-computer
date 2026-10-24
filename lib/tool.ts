@@ -23,7 +23,7 @@ export const WinComputerToolSchema = Type.Object({
     { description: "Desktop helper invocation with at most one window/element handle hop" }
   )),
   tool: Type.Optional(Type.String({ description: "Direct cua-driver native tool name (e.g. list_apps, kill_app, get_screen_size, set_config)" })),
-  params: Type.Optional(Type.Record(Type.String(), Type.Unknown(), { description: "Parameters passed to cua-driver native tool" })),
+  params: Type.Optional(Type.Object({}, { additionalProperties: true, description: "Parameters passed to cua-driver native tool" })),
   timeout: Type.Optional(Type.Number({ description: "Run budget in seconds" }))
 });
 

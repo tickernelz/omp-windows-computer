@@ -9,4 +9,7 @@ test("win_computer schema is a top-level JSON object", () => {
   assert.deepStrictEqual(schema.properties.action.enum, ["run", "call", "raw", "capabilities", "close"]);
   assert.deepStrictEqual(schema.required, ["action"]);
   assert.strictEqual(schema.properties.chain.items.type, "object");
+  assert.strictEqual(schema.properties.params.type, "object");
+  assert.strictEqual(schema.properties.params.additionalProperties, true);
+  assert.strictEqual(schema.properties.params.patternProperties, undefined);
 });
